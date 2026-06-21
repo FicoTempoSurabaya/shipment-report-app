@@ -1,0 +1,465 @@
+import { NextResponse } from "next/server";
+
+import { query } from "@/lib/db";
+import { validateSpreadsheetRequest } from "@/lib/spreadsheet-auth";
+import {
+  SYNC_ACTION,
+  SYNC_STATUS,
+  assertEndTimeAfterStartTime,
+  buildPushSummary,
+  getDatabaseErrorCode,
+  getSyncAction,
+  isBlankSpreadsheetRow,
+  makeResult,
+  normalizeDate,
+  normalizeFailureReasonsForDb,
+  normalizeStatusKerja,
+  normalizeTime,
+  resolveStatusShipmentFromShipmentCode,
+  toNonNegativeInteger,
+  toOptionalString,
+  toRequiredString,
+  type SpreadsheetRow,
+} from "@/lib/spreadsheet-sync";
+import type { ShipmentFailureReason, ShipmentStatus } from "@/types/shipment";
+
+type SpreadsheetShipmentsPayload = {
+  rows?: SpreadsheetRow[];
+};
+
+type UserLookupRow = {
+  nik_kerja: string;
+  nama_lengkap: string;
+};
+
+type ShipmentDbRow = {
+  shipment_id: string;
+  area_id: string;
+  nik_kerja: string | null;
+  nama_lengkap: string | null;
+  is_freelance: boolean;
+  nama_freelance: string | null;
+  tanggal_shipment: string;
+  status_shipment: ShipmentStatus;
+  shipment_code: string;
+  jam_berangkat: string | null;
+  jam_pulang: string | null;
+  jumlah_toko: number;
+  terkirim: number;
+  gagal: number;
+  alasan: ShipmentFailureReason[] | null;
+};
+
+const BUSINESS_HEADERS = [
+  "status_kerja",
+  "nik_kerja",
+  "nama_lengkap",
+  "nama_freelance",
+  "tanggal_shipment",
+  "shipment_code",
+  "jam_berangkat",
+  "jam_pulang",
+  "jumlah_toko",
+  "terkirim",
+  "alasan",
+];
+
+async function getUserByNik(params: { areaId: string; nikKerja: string }) {
+  const rows = await query<UserLookupRow>`
+    SELECT nik_kerja, nama_lengkap
+    FROM users
+    WHERE area_id = ${params.areaId}
+      AND nik_kerja = ${params.nikKerja}
+      AND user_role = 'regular'
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
+}
+
+async function getUsersByName(params: { areaId: string; namaLengkap: string }) {
+  return query<UserLookupRow>`
+    SELECT nik_kerja, nama_lengkap
+    FROM users
+    WHERE area_id = ${params.areaId}
+      AND LOWER(nama_lengkap) = LOWER(${params.namaLengkap})
+      AND user_role = 'regular'
+      AND is_active = TRUE
+    ORDER BY nik_kerja ASC
+  `;
+}
+
+async function resolveRegularUser(params: {
+  areaId: string;
+  nikKerja: string | null;
+  namaLengkap: string | null;
+}) {
+  if (params.nikKerja) {
+    const user = await getUserByNik({ areaId: params.areaId, nikKerja: params.nikKerja });
+
+    if (!user) {
+      throw new Error("nik_kerja tidak ditemukan pada users area ini");
+    }
+
+    if (params.namaLengkap && user.nama_lengkap.trim().toLowerCase() !== params.namaLengkap.trim().toLowerCase()) {
+      throw new Error("nik_kerja tidak cocok dengan nama_lengkap");
+    }
+
+    return user;
+  }
+
+  if (!params.namaLengkap) {
+    throw new Error("nama_lengkap atau nik_kerja wajib diisi untuk regular");
+  }
+
+  const users = await getUsersByName({ areaId: params.areaId, namaLengkap: params.namaLengkap });
+
+  if (users.length === 0) {
+    throw new Error("nama_lengkap tidak ditemukan pada users area ini");
+  }
+
+  if (users.length > 1) {
+    throw new Error("nama_lengkap tidak unik, gunakan data users yang valid");
+  }
+
+  return users[0];
+}
+
+function buildSheetValues(row: ShipmentDbRow) {
+  const statusKerja = row.is_freelance ? "freelance" : "regular";
+  const shipmentCodeType = /^\d{10}$/.test(row.shipment_code) ? "AKTIF" : "NON_AKTIF";
+
+  return {
+    area_id: row.area_id,
+    status_kerja: statusKerja,
+    nik_kerja: row.nik_kerja ?? "",
+    nama_lengkap: row.is_freelance ? "" : row.nama_lengkap ?? "",
+    nama_freelance: row.is_freelance ? row.nama_freelance ?? "" : "",
+    tanggal_shipment: row.tanggal_shipment,
+    shipment_code: row.shipment_code,
+    jam_berangkat: row.jam_berangkat ?? "",
+    jam_pulang: row.jam_pulang ?? "",
+    jumlah_toko: row.jumlah_toko,
+    terkirim: row.terkirim,
+    gagal: row.gagal,
+    __shipment_id: row.shipment_id,
+    __is_freelance: row.is_freelance,
+    __shipment_code_type: shipmentCodeType,
+    __sync_action: "UPSERT",
+    __sync_status: "SYNCED",
+    __sync_message: "Shipment tersimpan",
+  };
+}
+
+export async function POST(request: Request) {
+  const auth = await validateSpreadsheetRequest(request);
+
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  try {
+    const payload = (await request.json()) as SpreadsheetShipmentsPayload;
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    const results = [];
+
+    for (const row of rows) {
+      try {
+        if (isBlankSpreadsheetRow(row, BUSINESS_HEADERS)) {
+          results.push(
+            makeResult({
+              row,
+              status: SYNC_STATUS.SKIPPED,
+              message: "Baris kosong dilewati",
+            }),
+          );
+          continue;
+        }
+
+        const action = getSyncAction(row);
+        const shipmentId = toOptionalString(row.__shipment_id);
+
+        if (action === SYNC_ACTION.SKIP) {
+          results.push(
+            makeResult({
+              row,
+              status: SYNC_STATUS.SKIPPED,
+              message: "Baris dilewati karena __sync_action = SKIP",
+            }),
+          );
+          continue;
+        }
+
+        if (action === SYNC_ACTION.DELETE) {
+          if (!shipmentId) {
+            throw new Error("__shipment_id wajib ada untuk DELETE shipment");
+          }
+
+          const deleted = await query<{ shipment_id: string }>`
+            DELETE FROM shipments
+            WHERE shipment_id = ${shipmentId}::BIGINT
+              AND area_id = ${auth.context.areaId}
+            RETURNING shipment_id::TEXT AS shipment_id
+          `;
+
+          if (!deleted[0]) {
+            throw new Error("Shipment tidak ditemukan pada area spreadsheet");
+          }
+
+          results.push(
+            makeResult({
+              row,
+              status: SYNC_STATUS.SYNCED,
+              message: "Shipment dihapus",
+              values: {
+                __sync_action: "SKIP",
+                __sync_status: "SYNCED",
+                __sync_message: "Shipment dihapus",
+              },
+            }),
+          );
+          continue;
+        }
+
+        const statusKerja = normalizeStatusKerja(row.status_kerja);
+        const tanggalShipment = normalizeDate(row.tanggal_shipment, "tanggal_shipment");
+        const { shipment_code: shipmentCode } = resolveStatusShipmentFromShipmentCode(row.shipment_code);
+        const jamBerangkat = normalizeTime(row.jam_berangkat, "jam_berangkat");
+        const jamPulang = normalizeTime(row.jam_pulang, "jam_pulang");
+        const jumlahToko = toNonNegativeInteger(row.jumlah_toko, "jumlah_toko");
+        const terkirim = toNonNegativeInteger(row.terkirim, "terkirim");
+
+        assertEndTimeAfterStartTime({ jamBerangkat, jamPulang });
+
+        if (terkirim > jumlahToko) {
+          throw new Error("terkirim tidak boleh lebih besar dari jumlah_toko");
+        }
+
+        const gagal = jumlahToko - terkirim;
+        const alasanForDb = normalizeFailureReasonsForDb({ gagal, alasan: row.alasan });
+        let saved: ShipmentDbRow[];
+
+        if (statusKerja === "regular") {
+          const user = await resolveRegularUser({
+            areaId: auth.context.areaId,
+            nikKerja: toOptionalString(row.nik_kerja),
+            namaLengkap: toOptionalString(row.nama_lengkap),
+          });
+
+          saved = shipmentId
+            ? await query<ShipmentDbRow>`
+                UPDATE shipments s
+                SET
+                  nik_kerja = ${user.nik_kerja},
+                  is_freelance = FALSE,
+                  nama_freelance = NULL,
+                  tanggal_shipment = ${tanggalShipment}::DATE,
+                  shipment_code = ${shipmentCode},
+                  jam_berangkat = ${jamBerangkat}::TIME,
+                  jam_pulang = ${jamPulang}::TIME,
+                  jumlah_toko = ${jumlahToko},
+                  terkirim = ${terkirim},
+                  alasan = ${alasanForDb}::JSONB
+                FROM users u
+                WHERE s.shipment_id = ${shipmentId}::BIGINT
+                  AND s.area_id = ${auth.context.areaId}
+                  AND u.nik_kerja = ${user.nik_kerja}
+                RETURNING
+                  s.shipment_id::TEXT AS shipment_id,
+                  s.area_id,
+                  s.nik_kerja,
+                  u.nama_lengkap,
+                  s.is_freelance,
+                  s.nama_freelance,
+                  s.tanggal_shipment::TEXT AS tanggal_shipment,
+                  CASE WHEN s.shipment_code ~ '^[0-9]{10}$' THEN 'Aktif' ELSE s.shipment_code END AS status_shipment,
+                  s.shipment_code,
+                  s.jam_berangkat::TEXT AS jam_berangkat,
+                  s.jam_pulang::TEXT AS jam_pulang,
+                  s.jumlah_toko,
+                  s.terkirim,
+                  s.gagal,
+                  COALESCE(s.alasan, '[]'::JSONB) AS alasan
+              `
+            : await query<ShipmentDbRow>`
+                INSERT INTO shipments (
+                  area_id,
+                  nik_kerja,
+                  is_freelance,
+                  nama_freelance,
+                  tanggal_shipment,
+                  shipment_code,
+                  jam_berangkat,
+                  jam_pulang,
+                  jumlah_toko,
+                  terkirim,
+                  alasan
+                )
+                VALUES (
+                  ${auth.context.areaId},
+                  ${user.nik_kerja},
+                  FALSE,
+                  NULL,
+                  ${tanggalShipment}::DATE,
+                  ${shipmentCode},
+                  ${jamBerangkat}::TIME,
+                  ${jamPulang}::TIME,
+                  ${jumlahToko},
+                  ${terkirim},
+                  ${alasanForDb}::JSONB
+                )
+                RETURNING
+                  shipment_id::TEXT AS shipment_id,
+                  area_id,
+                  nik_kerja,
+                  ${user.nama_lengkap}::TEXT AS nama_lengkap,
+                  is_freelance,
+                  nama_freelance,
+                  tanggal_shipment::TEXT AS tanggal_shipment,
+                  CASE WHEN shipment_code ~ '^[0-9]{10}$' THEN 'Aktif' ELSE shipment_code END AS status_shipment,
+                  shipment_code,
+                  jam_berangkat::TEXT AS jam_berangkat,
+                  jam_pulang::TEXT AS jam_pulang,
+                  jumlah_toko,
+                  terkirim,
+                  gagal,
+                  COALESCE(alasan, '[]'::JSONB) AS alasan
+              `;
+        } else {
+          const namaFreelance = toRequiredString(row.nama_freelance, "nama_freelance");
+
+          saved = shipmentId
+            ? await query<ShipmentDbRow>`
+                UPDATE shipments
+                SET
+                  nik_kerja = NULL,
+                  is_freelance = TRUE,
+                  nama_freelance = ${namaFreelance},
+                  tanggal_shipment = ${tanggalShipment}::DATE,
+                  shipment_code = ${shipmentCode},
+                  jam_berangkat = ${jamBerangkat}::TIME,
+                  jam_pulang = ${jamPulang}::TIME,
+                  jumlah_toko = ${jumlahToko},
+                  terkirim = ${terkirim},
+                  alasan = ${alasanForDb}::JSONB
+                WHERE shipment_id = ${shipmentId}::BIGINT
+                  AND area_id = ${auth.context.areaId}
+                RETURNING
+                  shipment_id::TEXT AS shipment_id,
+                  area_id,
+                  nik_kerja,
+                  NULL::TEXT AS nama_lengkap,
+                  is_freelance,
+                  nama_freelance,
+                  tanggal_shipment::TEXT AS tanggal_shipment,
+                  CASE WHEN shipment_code ~ '^[0-9]{10}$' THEN 'Aktif' ELSE shipment_code END AS status_shipment,
+                  shipment_code,
+                  jam_berangkat::TEXT AS jam_berangkat,
+                  jam_pulang::TEXT AS jam_pulang,
+                  jumlah_toko,
+                  terkirim,
+                  gagal,
+                  COALESCE(alasan, '[]'::JSONB) AS alasan
+              `
+            : await query<ShipmentDbRow>`
+                INSERT INTO shipments (
+                  area_id,
+                  nik_kerja,
+                  is_freelance,
+                  nama_freelance,
+                  tanggal_shipment,
+                  shipment_code,
+                  jam_berangkat,
+                  jam_pulang,
+                  jumlah_toko,
+                  terkirim,
+                  alasan
+                )
+                VALUES (
+                  ${auth.context.areaId},
+                  NULL,
+                  TRUE,
+                  ${namaFreelance},
+                  ${tanggalShipment}::DATE,
+                  ${shipmentCode},
+                  ${jamBerangkat}::TIME,
+                  ${jamPulang}::TIME,
+                  ${jumlahToko},
+                  ${terkirim},
+                  ${alasanForDb}::JSONB
+                )
+                RETURNING
+                  shipment_id::TEXT AS shipment_id,
+                  area_id,
+                  nik_kerja,
+                  NULL::TEXT AS nama_lengkap,
+                  is_freelance,
+                  nama_freelance,
+                  tanggal_shipment::TEXT AS tanggal_shipment,
+                  CASE WHEN shipment_code ~ '^[0-9]{10}$' THEN 'Aktif' ELSE shipment_code END AS status_shipment,
+                  shipment_code,
+                  jam_berangkat::TEXT AS jam_berangkat,
+                  jam_pulang::TEXT AS jam_pulang,
+                  jumlah_toko,
+                  terkirim,
+                  gagal,
+                  COALESCE(alasan, '[]'::JSONB) AS alasan
+              `;
+        }
+
+        const savedShipment = saved[0];
+
+        if (!savedShipment) {
+          throw new Error("Shipment tidak ditemukan atau gagal disimpan");
+        }
+
+        results.push(
+          makeResult({
+            row,
+            status: SYNC_STATUS.SYNCED,
+            message: "Shipment tersimpan",
+            values: buildSheetValues(savedShipment),
+          }),
+        );
+      } catch (error) {
+        const code = getDatabaseErrorCode(error);
+        const message =
+          code === "23505"
+            ? "Data shipment sudah ada pada tanggal tersebut"
+            : code === "23514"
+              ? "Data shipment melanggar aturan validasi database"
+              : error instanceof Error
+                ? error.message
+                : "Gagal memproses shipment";
+
+        results.push(
+          makeResult({
+            row,
+            status: SYNC_STATUS.ERROR,
+            message,
+          }),
+        );
+      }
+    }
+
+    return NextResponse.json(buildPushSummary({ label: "shipments", total: rows.length, results }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Gagal sync shipments dari spreadsheet";
+
+    return NextResponse.json(
+      {
+        ok: false,
+        status: "FAILED",
+        message,
+        rows_total: 0,
+        rows_success: 0,
+        rows_failed: 0,
+        results: [],
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+}
