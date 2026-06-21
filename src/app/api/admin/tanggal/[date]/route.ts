@@ -13,6 +13,7 @@ import {
 type AreaRow = {
   area_id: string;
   nama_area: string;
+  sla_area: number;
 };
 
 type RegularDetailRow = {
@@ -195,7 +196,8 @@ export async function GET(
     const areaRows = await query<AreaRow>`
       SELECT
         a.area_id,
-        a.nama_area
+        a.nama_area,
+        a.sla_area
       FROM area a
       WHERE a.area_id = ${areaId}
       LIMIT 1
@@ -308,6 +310,7 @@ export async function GET(
     }));
 
     const items = [...regularItems, ...freelanceItems];
+    const submittedItems = items.filter((item) => item.shipment?.shipment_code);
 
     return NextResponse.json({
       ok: true,
@@ -315,16 +318,16 @@ export async function GET(
         tanggal: date,
         area_id: areaId,
         nama_area: areaInfo?.nama_area ?? areaId,
-        total_regular: regularItems.length,
+        sla_area: Number(areaInfo?.sla_area ?? 0),
+        total_regular: regularItems.filter((item) => item.shipment).length,
         total_freelance: freelanceItems.length,
-        total_input: items.filter((item) => item.shipment?.shipment_code).length,
-        total_non_aktif: items.filter(
+        total_efektif: submittedItems.filter((item) =>
+          isActiveShipmentCode(item.shipment?.shipment_code),
+        ).length,
+        total_non_efektif: submittedItems.filter(
           (item) =>
             item.shipment?.shipment_code &&
             !isActiveShipmentCode(item.shipment.shipment_code),
-        ).length,
-        total_shipment: items.filter((item) =>
-          isActiveShipmentCode(item.shipment?.shipment_code),
         ).length,
         items,
       },

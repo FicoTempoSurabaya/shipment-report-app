@@ -286,7 +286,7 @@ export default function RegularPage() {
 
             {hasLoadedDashboard && data
               ? data.metrics.status_counts.map((item) => (
-                  <div key={item.status} className="w-32 shrink-0">
+                  <div key={item.status} className="w-40 shrink-0 h-full">
                     <MetricCard
                       title={item.status.toUpperCase()}
                       value={item.count}

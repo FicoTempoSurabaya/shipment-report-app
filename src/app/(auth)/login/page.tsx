@@ -2,7 +2,7 @@
 
 import { Eye, EyeOff, Loader2, LockKeyhole, UserRound } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { SyntheticEvent, useMemo, useState } from "react";
+import { Suspense, SyntheticEvent, useMemo, useState } from "react";
 import { toast, Toaster } from "sonner";
 
 type LoginSuccessResponse = {
@@ -26,7 +26,7 @@ type LoginErrorResponse = {
 
 type LoginApiResponse = LoginSuccessResponse | LoginErrorResponse;
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -138,7 +138,7 @@ export default function LoginPage() {
         <div className="flex items-center justify-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-md">
             <div className="ind-panel p-6 sm:p-8">
-              <div className="mb-8">
+              <div className="mb-5">
                 <p className="ind-label-accent">Authorized Access</p>
                 <div className="ind-divider-accent mt-3" />
                 <h2 className="ind-heading mt-4 text-3xl">Login Panel</h2>
@@ -147,12 +147,12 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              <form className="space-y-5" onSubmit={handleSubmit}>
+              <form className="space-y-3" onSubmit={handleSubmit}>
                 <label className="block">
                   <span className="mb-2 block text-sm font-bold text-[var(--steel)]">
                     Username
                   </span>
-                  <div className="flex items-center gap-3 border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] px-4 py-3 transition focus-within:border-[var(--primary)]">
+                  <div className="w-full h-12 flex items-center gap-3 border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] px-4 py-3 transition focus-within:border-[var(--primary)]">
                     <UserRound className="h-5 w-5 text-[var(--muted)]" />
                     <input
                       className="w-full bg-transparent text-sm font-semibold text-[var(--steel)] outline-none placeholder:text-[var(--muted)]"
@@ -168,7 +168,7 @@ export default function LoginPage() {
                   <span className="mb-2 block text-sm font-bold text-[var(--steel)]">
                     Password
                   </span>
-                  <div className="flex items-center gap-3 border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] px-4 py-3 transition focus-within:border-[var(--primary)]">
+                  <div className="w-full h-12 flex items-center gap-3 border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] px-4 py-3 transition focus-within:border-[var(--primary)]">
                     <LockKeyhole className="h-5 w-5 text-[var(--muted)]" />
                     <input
                       className="w-full bg-transparent text-sm font-semibold text-[var(--steel)] outline-none placeholder:text-[var(--muted)]"
@@ -215,7 +215,7 @@ export default function LoginPage() {
             </div>
 
             <button
-              className="mt-4 w-full border-[3px] border-[var(--steel)] bg-[var(--surface)] px-4 py-4 text-center text-sm font-black text-[var(--primary-dark)] transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]"
+              className="mt-4 w-full h-12 border-[3px] border-[var(--steel)] bg-[var(--steel)] px-4 py-auto text-center text-sm font-white text-white transition hover:-translate-y-0.5 hover:border-[var(--primary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]"
               type="button"
               onClick={() => router.push("/freelance")}
             >
@@ -225,5 +225,26 @@ export default function LoginPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <main className="flex min-h-screen items-center justify-center text-[var(--steel)]">
+      <div className="ind-panel p-6 text-center">
+        <p className="ind-label-accent">Authorized Access</p>
+        <p className="mt-3 text-sm font-bold text-[var(--muted)]">
+          Memuat halaman login...
+        </p>
+      </div>
+    </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

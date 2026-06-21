@@ -40,11 +40,11 @@ type DetailTanggalResponse = {
   tanggal: string;
   area_id: string;
   nama_area: string;
+  sla_area: number;
   total_regular: number;
   total_freelance: number;
-  total_input: number;
-  total_non_aktif: number;
-  total_shipment: number;
+  total_efektif: number;
+  total_non_efektif: number;
   items: AdminTanggalItem[];
 };
 
@@ -196,10 +196,11 @@ export default function AdminTanggalDetailPage() {
   return (
     <DashboardShell
       title={pageTitle}
-      description="Kelola input, edit, dan hapus shipment regular maupun freelance pada tanggal terpilih."
-      roleLabel="Admin Date Detail"
+      description=""
+      roleLabel="Detail Tanggal"
       profilePath="/admin/profile"
       userName="Admin"
+      hideIntroPanel
     >
       <div className="space-y-4">
         {error ? (
@@ -231,13 +232,13 @@ export default function AdminTanggalDetailPage() {
         </div>
 
         {/* SUMMARY */}
-        <div className="space-y-3">
-          <SummaryBox
-            label="Area"
-            value={loading ? "Memuat..." : data?.nama_area || data?.area_id || "-"}
-          />
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <div className="overflow-x-auto pb-1">
+          <div className="grid min-w-[760px] grid-cols-5 gap-2 lg:min-w-0">
+            <SummaryBox
+              compact
+              label="SLA"
+              value={loading ? "..." : (data?.sla_area ?? 0)}
+            />
             <SummaryBox
               compact
               label="Regular"
@@ -250,18 +251,13 @@ export default function AdminTanggalDetailPage() {
             />
             <SummaryBox
               compact
-              label="Input"
-              value={loading ? "..." : (data?.total_input ?? 0)}
+              label="Efektif"
+              value={loading ? "..." : (data?.total_efektif ?? 0)}
             />
             <SummaryBox
               compact
-              label="Nonaktif"
-              value={loading ? "..." : (data?.total_non_aktif ?? 0)}
-            />
-            <SummaryBox
-              compact
-              label="Shipment Aktif"
-              value={loading ? "..." : (data?.total_shipment ?? 0)}
+              label="Non Efektif"
+              value={loading ? "..." : (data?.total_non_efektif ?? 0)}
             />
           </div>
         </div>

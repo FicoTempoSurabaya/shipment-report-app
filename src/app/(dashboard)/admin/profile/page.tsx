@@ -82,16 +82,13 @@ export default function AdminProfilePage() {
   const [profilePassword, setProfilePassword] = useState("");
   const [showProfilePassword, setShowProfilePassword] = useState(false);
 
-  const [spreadsheetId, setSpreadsheetId] = useState("");
-  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
-
   const [search, setSearch] = useState("");
   const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isSavingSpreadsheet, setIsSavingSpreadsheet] = useState(false);
+  const [isSpreadsheetActionLoading, setIsSpreadsheetActionLoading] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
 
@@ -105,14 +102,6 @@ export default function AdminProfilePage() {
       profilePassword.length === 0
     );
   }, [isSavingProfile, profile, profilePassword, profileUsername]);
-
-  const isSpreadsheetSubmitDisabled = useMemo(() => {
-    return (
-      isSavingSpreadsheet ||
-      spreadsheetId.trim().length === 0 ||
-      spreadsheetUrl.trim().length === 0
-    );
-  }, [isSavingSpreadsheet, spreadsheetId, spreadsheetUrl]);
 
   const isUserSubmitDisabled = useMemo(() => {
     return (
@@ -154,8 +143,6 @@ export default function AdminProfilePage() {
     }
 
     setSpreadsheet(result.data);
-    setSpreadsheetId(result.data.spreadsheet_id ?? "");
-    setSpreadsheetUrl(result.data.spreadsheet_url ?? "");
   }, []);
 
   const loadUsers = useCallback(async (keyword = "") => {
@@ -278,42 +265,37 @@ export default function AdminProfilePage() {
     }
   }
 
-  async function handleSaveSpreadsheet(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (isSpreadsheetSubmitDisabled) {
-      toast.error("Spreadsheet ID dan URL wajib diisi");
+  async function handleSpreadsheetAction() {
+    if (spreadsheet?.is_connected && spreadsheet.spreadsheet_url) {
+      window.open(spreadsheet.spreadsheet_url, "_blank", "noopener,noreferrer");
       return;
     }
 
-    setIsSavingSpreadsheet(true);
+    setIsSpreadsheetActionLoading(true);
 
     try {
-      const response = await fetch("/api/admin/spreadsheet", {
+      const response = await fetch("/api/admin/spreadsheet/connect", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         credentials: "include",
-        body: JSON.stringify({
-          spreadsheet_id: spreadsheetId.trim(),
-          spreadsheet_url: spreadsheetUrl.trim(),
-        }),
       });
 
       const result = (await response.json()) as ApiResponse<SpreadsheetData>;
 
       if (!response.ok || !result.ok || !result.data) {
-        toast.error(result.message || "Gagal menyimpan spreadsheet area");
+        toast.error(result.message || "Gagal menghubungkan spreadsheet area");
         return;
       }
 
       setSpreadsheet(result.data);
-      toast.success(result.message || "Spreadsheet area berhasil disimpan");
+      toast.success(result.message || "Spreadsheet area berhasil dihubungkan");
+
+      if (result.data.spreadsheet_url) {
+        window.open(result.data.spreadsheet_url, "_blank", "noopener,noreferrer");
+      }
     } catch {
       toast.error("Tidak bisa terhubung ke server");
     } finally {
-      setIsSavingSpreadsheet(false);
+      setIsSpreadsheetActionLoading(false);
     }
   }
 
@@ -363,7 +345,7 @@ export default function AdminProfilePage() {
 
   return (
     <DashboardShell
-      description="Kelola profile admin, spreadsheet area, dan anggota regular di area admin."
+      description="Kelola profile admin dan anggota regular di area admin."
       hideIntroPanel
       profilePath="/admin/profile"
       roleLabel="Admin Profile"
@@ -412,6 +394,29 @@ export default function AdminProfilePage() {
                     </p>
                   </div>
                 </div>
+
+                <button
+                  className={
+                    spreadsheet?.is_connected
+                      ? "ind-btn-secondary w-full"
+                      : "ind-btn-danger w-full"
+                  }
+                  disabled={isSpreadsheetActionLoading}
+                  type="button"
+                  onClick={() => void handleSpreadsheetAction()}
+                >
+                  {isSpreadsheetActionLoading ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Memproses
+                    </>
+                  ) : (
+                    <>
+                      <Sheet className="h-5 w-5" />
+                      {spreadsheet?.is_connected ? "Buka" : "Hubungkan"}
+                    </>
+                  )}
+                </button>
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-bold text-[var(--steel)]">
@@ -487,87 +492,6 @@ export default function AdminProfilePage() {
                     </>
                   )}
                 </button>
-              </form>
-            </div>
-
-            <div className="ind-card p-6">
-              <div className="mb-5 flex items-start justify-between gap-3">
-                <div>
-                  <p className="ind-label-accent">Spreadsheet Area</p>
-                  <h2 className="ind-heading mt-3 text-2xl">
-                    {spreadsheet?.nama_area ?? profile.nama_area ?? "Area"}
-                  </h2>
-                  <p className="mt-2 text-sm text-[var(--muted)]">
-                    Spreadsheet mengikuti area, bukan masing-masing admin.
-                  </p>
-                </div>
-
-                <div className="ind-icon-box">
-                  <Sheet className="h-5 w-5" />
-                </div>
-              </div>
-
-              <form className="space-y-5" onSubmit={handleSaveSpreadsheet}>
-                <label className="block">
-                  <span className="mb-2 block text-sm font-bold text-[var(--steel)]">
-                    Spreadsheet ID
-                  </span>
-                  <input
-                    className="ind-input"
-                    value={spreadsheetId}
-                    onChange={(event) => setSpreadsheetId(event.target.value)}
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-sm font-bold text-[var(--steel)]">
-                    Spreadsheet URL
-                  </span>
-                  <input
-                    className="ind-input"
-                    value={spreadsheetUrl}
-                    onChange={(event) => setSpreadsheetUrl(event.target.value)}
-                  />
-                </label>
-
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <button
-                    className="ind-btn-primary flex-1"
-                    disabled={isSpreadsheetSubmitDisabled}
-                    type="submit"
-                  >
-                    {isSavingSpreadsheet ? (
-                      <>
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                        Menyimpan
-                      </>
-                    ) : (
-                      <>
-                        <Save className="h-5 w-5" />
-                        Simpan Spreadsheet
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    className={
-                      spreadsheet?.is_connected
-                        ? "ind-btn-secondary flex-1"
-                        : "ind-btn-danger flex-1"
-                    }
-                    disabled={!spreadsheet?.spreadsheet_url}
-                    type="button"
-                    onClick={() => {
-                      if (spreadsheet?.spreadsheet_url) {
-                        window.open(spreadsheet.spreadsheet_url, "_blank", "noopener,noreferrer");
-                      }
-                    }}
-                  >
-                    {spreadsheet?.is_connected
-                      ? "Buka Spreadsheet"
-                      : "Hubungkan Spreadsheet"}
-                  </button>
-                </div>
               </form>
             </div>
           </section>
