@@ -49,7 +49,9 @@ export async function createAreaSpreadsheetViaAppsScript(params: {
 }): Promise<AppsScriptSpreadsheetResult> {
   const webAppUrl = requireEnv("GOOGLE_APPS_SCRIPT_CONNECT_URL");
   const connectSecret = requireEnv("GOOGLE_APPS_SCRIPT_CONNECT_SECRET");
+  const webhookSecret = requireEnv("SPREADSHEET_WEBHOOK_SECRET");
   const templateSpreadsheetId = requireEnv("GOOGLE_SPREADSHEET_TEMPLATE_ID");
+  const apiBaseUrl = requireEnv("NEXT_PUBLIC_APP_URL");
   const spreadsheetName = makeSpreadsheetName(params.area_name);
 
   const response = await fetch(webAppUrl, {
@@ -59,12 +61,13 @@ export async function createAreaSpreadsheetViaAppsScript(params: {
     },
     body: JSON.stringify({
       secret: connectSecret,
+      webhook_secret: webhookSecret,
       area_id: params.area_id,
       area_name: params.area_name,
       spreadsheet_name: spreadsheetName,
       template_spreadsheet_id: templateSpreadsheetId,
       output_folder_id: optionalEnv("GOOGLE_DRIVE_FOLDER_ID"),
-      api_base_url: optionalEnv("NEXT_PUBLIC_APP_URL"),
+      api_base_url: apiBaseUrl,
       owner_email: optionalEnv("SPREADSHEET_OWNER_EMAIL"),
       superadmin_emails: optionalEnv("SPREADSHEET_SUPERADMIN_EMAILS"),
     }),

@@ -1,6 +1,10 @@
 "use client";
 
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import {
+  BrowserMultiFormatReader,
+  type IScannerControls,
+} from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { Camera, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -9,60 +13,102 @@ type BarcodeScannerProps = {
   onDetected: (value: string) => void;
 };
 
+const hints = new Map();
+
+hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODE_93,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.ITF,
+  BarcodeFormat.CODABAR,
+  BarcodeFormat.QR_CODE,
+]);
+
+hints.set(DecodeHintType.TRY_HARDER, true);
+
 export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const controlsRef = useRef<{ stop: () => void } | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const detectedRef = useRef(false);
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !videoRef.current) {
-    return;
+      return;
     }
 
-    const videoElement = videoRef.current;
     let isMounted = true;
-    const reader = new BrowserMultiFormatReader();
+    detectedRef.current = false;
+
+    const videoElement = videoRef.current;
+    const reader = new BrowserMultiFormatReader(hints, {delayBetweenScanAttempts: 300,});
 
     async function startScanner() {
       try {
-        const videoInputDevices =
-          await BrowserMultiFormatReader.listVideoInputDevices();
-
-        if (!isMounted) {
-          return;
-        }
-
-        const backCamera =
-          videoInputDevices.find((device) =>
-            device.label.toLowerCase().includes("back"),
-          ) ?? videoInputDevices[0];
-
-        if (!backCamera) {
-          toast.error("Kamera tidak ditemukan");
-          return;
-        }
-
-        controlsRef.current = await reader.decodeFromVideoDevice(
-          backCamera.deviceId,
+        const controls = await reader.decodeFromConstraints(
+          {
+            audio: false,
+            video: {
+              facingMode: {
+                ideal: "environment",
+              },
+              width: {
+                ideal: 1280,
+              },
+              height: {
+                ideal: 720,
+              },
+            },
+          },
           videoElement,
-          (result) => {
+          (result, error) => {
+            if (!isMounted || detectedRef.current) {
+              return;
+            }
+
             if (!result) {
+              if (
+                error &&
+                error.name !== "NotFoundException" &&
+                error.name !== "ChecksumException" &&
+                error.name !== "FormatException"
+              ) {
+                console.warn("Barcode scan error:", error);
+              }
+
               return;
             }
 
-            const value = result.getText().trim();
+            const rawValue = result.getText().trim();
+            const numericValue = rawValue.replace(/\D/g, "");
 
-            if (!value) {
+            if (!numericValue) {
+              toast.error("Barcode terbaca, tapi tidak berisi angka shipment");
               return;
             }
 
-            onDetected(value);
+            detectedRef.current = true;
+            controlsRef.current?.stop();
+            controlsRef.current = null;
+
+            onDetected(numericValue);
             toast.success("Barcode berhasil dibaca");
             setIsOpen(false);
           },
         );
-      } catch {
-        toast.error("Tidak bisa membuka kamera");
+
+        if (!isMounted) {
+          controls.stop();
+          return;
+        }
+
+        controlsRef.current = controls;
+      } catch (error) {
+        console.error("Scanner camera error:", error);
+        toast.error("Tidak bisa membuka scanner kamera");
+        setIsOpen(false);
       }
     }
 
@@ -93,7 +139,7 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
               <div>
                 <p className="ind-heading text-sm">Scan Barcode</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Arahkan kamera ke kode shipment.
+                  Arahkan kamera belakang ke kode shipment.
                 </p>
               </div>
 
@@ -106,16 +152,21 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
               </button>
             </div>
 
-            <video
-              ref={videoRef}
-              className="aspect-video w-full border-2 border-[var(--steel)] bg-black object-cover"
-              muted
-              playsInline
-            />
+            <div className="relative overflow-hidden border-2 border-[var(--steel)] bg-black">
+              <video
+                ref={videoRef}
+                className="aspect-video w-full bg-black object-cover"
+                muted
+                playsInline
+                autoPlay
+              />
+
+              <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-white/80" />
+            </div>
 
             <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
-              Jika kamera tidak terbuka, pastikan browser memberi izin akses kamera
-              dan gunakan HTTPS saat production.
+              Gunakan HTTPS saat production. Pastikan barcode terang, tidak blur,
+              dan memenuhi area tengah kamera.
             </p>
           </div>
         </div>

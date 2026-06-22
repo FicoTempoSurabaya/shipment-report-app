@@ -31,6 +31,7 @@ const SETRA = Object.freeze({
     SPREADSHEET_URL: 'SPREADSHEET_URL',
     OWNER_EMAIL: 'OWNER_EMAIL',
     SUPERADMIN_EMAILS: 'SUPERADMIN_EMAILS',
+    WEBHOOK_SECRET: 'WEBHOOK_SECRET',
   }),
 
   SCRIPT_PROP_KEYS: Object.freeze({
@@ -218,11 +219,23 @@ function setraGetApiBaseUrl_() {
 }
 
 function setraGetWebhookSecret_() {
-  const secret = PropertiesService.getScriptProperties().getProperty(SETRA.SCRIPT_PROP_KEYS.WEBHOOK_SECRET);
-  if (!secret) {
-    throw new Error('Script Property SETRA_WEBHOOK_SECRET belum diset. Jalankan setSetraWebhookSecret("SECRET_ANDA") dari Apps Script editor.');
+  const scriptPropertySecret = String(
+    PropertiesService.getScriptProperties().getProperty(SETRA.SCRIPT_PROP_KEYS.WEBHOOK_SECRET) || ''
+  ).trim();
+
+  if (scriptPropertySecret) {
+    return scriptPropertySecret;
   }
-  return secret;
+
+  const configSecret = setraGetConfigValue_(SETRA.CONFIG_KEYS.WEBHOOK_SECRET, '');
+
+  if (configSecret) {
+    return configSecret;
+  }
+
+  throw new Error(
+    'Secret sync belum tersedia. Isi Script Property SETRA_WEBHOOK_SECRET atau pastikan _config.WEBHOOK_SECRET terisi otomatis dari fitur Hubungkan.'
+  );
 }
 
 function setraGetCurrentUserEmail_() {

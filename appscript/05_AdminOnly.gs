@@ -4,19 +4,6 @@
  * Scope: function manual untuk owner/superadmin. Tidak masuk menu spreadsheet.
  */
 
-function setSetraWebhookSecret(secret) {
-  if (!secret || String(secret).trim().length < 16) {
-    throw new Error('Secret terlalu pendek. Gunakan secret kuat minimal 16 karakter.');
-  }
-
-  PropertiesService.getScriptProperties().setProperty(
-    SETRA.SCRIPT_PROP_KEYS.WEBHOOK_SECRET,
-    String(secret).trim()
-  );
-
-  SpreadsheetApp.getUi().alert('SETRA_WEBHOOK_SECRET berhasil disimpan di Script Properties.');
-}
-
 function setraSyncAreaAdminOnly() {
   setraAssertOwnerOrSuperadmin_();
   const sheetName = SETRA.SHEETS.AREA;

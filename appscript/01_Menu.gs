@@ -7,9 +7,9 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu(SETRA.MENU_NAME)
-    .addItem('Users', 'setraSyncUsers')
-    .addItem('Shipments', 'setraSyncShipments')
-    .addItem('Locking', 'setraSyncLocking')
+    .addItem('😎 Users', 'setraSyncUsers')
+    .addItem('📝 Shipments', 'setraSyncShipments')
+    .addItem('🔒 Locking', 'setraSyncLocking')
     .addToUi();
 }
 
