@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
-import {
-  copySpreadsheetTemplate,
-  updateSpreadsheetConfig,
-} from "@/lib/google-service";
+import { createAreaSpreadsheetViaAppsScript } from "@/lib/google-apps-script-connect";
 
 type AreaSpreadsheetRow = {
   area_id: string;
@@ -120,22 +117,16 @@ export async function POST() {
       });
     }
 
-    const copiedSpreadsheet = await copySpreadsheetTemplate({
-      nama_area: existingArea.nama_area,
-    });
-
-    await updateSpreadsheetConfig({
-      spreadsheet_id: copiedSpreadsheet.spreadsheet_id,
+    const connectedSpreadsheet = await createAreaSpreadsheetViaAppsScript({
       area_id: existingArea.area_id,
       area_name: existingArea.nama_area,
-      spreadsheet_url: copiedSpreadsheet.spreadsheet_url,
     });
 
     const updatedRows = await query<AreaSpreadsheetRow>`
       UPDATE area
       SET
-        spreadsheet_id = ${copiedSpreadsheet.spreadsheet_id},
-        spreadsheet_url = ${copiedSpreadsheet.spreadsheet_url}
+        spreadsheet_id = ${connectedSpreadsheet.spreadsheet_id},
+        spreadsheet_url = ${connectedSpreadsheet.spreadsheet_url}
       WHERE area_id = ${existingArea.area_id}
         AND is_active = TRUE
       RETURNING
