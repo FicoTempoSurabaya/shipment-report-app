@@ -13,7 +13,17 @@ type BarcodeScannerProps = {
   onDetected: (value: string) => void;
 };
 
-const hints = new Map();
+type ExtendedMediaTrackCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  torch?: boolean;
+};
+
+type ExtendedMediaTrackConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string;
+  torch?: boolean;
+};
+
+const hints = new Map<DecodeHintType, unknown>();
 
 hints.set(DecodeHintType.POSSIBLE_FORMATS, [
   BarcodeFormat.CODE_128,
@@ -21,12 +31,56 @@ hints.set(DecodeHintType.POSSIBLE_FORMATS, [
   BarcodeFormat.CODE_93,
   BarcodeFormat.EAN_13,
   BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
   BarcodeFormat.ITF,
   BarcodeFormat.CODABAR,
   BarcodeFormat.QR_CODE,
 ]);
 
 hints.set(DecodeHintType.TRY_HARDER, true);
+hints.set(DecodeHintType.ASSUME_GS1, true);
+
+const ignoredScanErrors = new Set([
+  "NotFoundException",
+  "ChecksumException",
+  "FormatException",
+]);
+
+async function optimizeCameraTrack(videoElement: HTMLVideoElement) {
+  const stream = videoElement.srcObject;
+
+  if (!(stream instanceof MediaStream)) {
+    return;
+  }
+
+  const track = stream.getVideoTracks()[0];
+
+  if (!track || typeof track.getCapabilities !== "function") {
+    return;
+  }
+
+  const capabilities = track.getCapabilities() as ExtendedMediaTrackCapabilities;
+  const advanced: ExtendedMediaTrackConstraintSet[] = [];
+
+  if (capabilities.focusMode?.includes("continuous")) {
+    advanced.push({ focusMode: "continuous" });
+  }
+
+  if (capabilities.torch) {
+    advanced.push({ torch: true });
+  }
+
+  if (!advanced.length) {
+    return;
+  }
+
+  try {
+    await track.applyConstraints({ advanced });
+  } catch (error) {
+    console.warn("Camera optimization skipped:", error);
+  }
+}
 
 export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -43,7 +97,10 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
     detectedRef.current = false;
 
     const videoElement = videoRef.current;
-    const reader = new BrowserMultiFormatReader(hints, {delayBetweenScanAttempts: 300,});
+    const reader = new BrowserMultiFormatReader(hints, {
+      delayBetweenScanAttempts: 50,
+      delayBetweenScanSuccess: 250,
+    });
 
     async function startScanner() {
       try {
@@ -55,10 +112,13 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
                 ideal: "environment",
               },
               width: {
-                ideal: 1280,
+                ideal: 1920,
               },
               height: {
-                ideal: 720,
+                ideal: 1080,
+              },
+              frameRate: {
+                ideal: 60,
               },
             },
           },
@@ -69,12 +129,7 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
             }
 
             if (!result) {
-              if (
-                error &&
-                error.name !== "NotFoundException" &&
-                error.name !== "ChecksumException" &&
-                error.name !== "FormatException"
-              ) {
+              if (error && !ignoredScanErrors.has(error.name)) {
                 console.warn("Barcode scan error:", error);
               }
 
@@ -105,6 +160,7 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
         }
 
         controlsRef.current = controls;
+        await optimizeCameraTrack(videoElement);
       } catch (error) {
         console.error("Scanner camera error:", error);
         toast.error("Tidak bisa membuka scanner kamera");
