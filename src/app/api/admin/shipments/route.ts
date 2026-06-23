@@ -213,7 +213,7 @@ export async function POST(request: Request) {
         ${payload.jam_pulang ?? null}::TIME,
         ${payload.jumlah_toko},
         ${payload.terkirim},
-        ${alasanForDb}::JSONB
+        ${alasanForDb}
       )
       RETURNING
         shipment_id,
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
     `;
 
     return NextResponse.json(
@@ -347,7 +347,7 @@ export async function PUT(request: Request) {
           jam_pulang = ${payload.jam_pulang ?? null}::TIME,
           jumlah_toko = ${payload.jumlah_toko},
           terkirim = ${payload.terkirim},
-          alasan = ${alasanForDb}::JSONB
+          alasan = ${alasanForDb}
         WHERE shipment_id = ${payload.shipment_id}
           AND area_id = ${areaId}
         RETURNING
@@ -367,7 +367,7 @@ export async function PUT(request: Request) {
           jumlah_toko,
           terkirim,
           gagal,
-          COALESCE(alasan, '[]'::JSONB) AS alasan
+          COALESCE(alasan, '') AS alasan
       `;
 
       if (!rows[0]) {
@@ -436,7 +436,7 @@ export async function PUT(request: Request) {
         jam_pulang = ${payload.jam_pulang ?? null}::TIME,
         jumlah_toko = ${payload.jumlah_toko},
         terkirim = ${payload.terkirim},
-        alasan = ${alasanForDb}::JSONB
+        alasan = ${alasanForDb}
       WHERE shipment_id = ${payload.shipment_id}
         AND area_id = ${areaId}
       RETURNING
@@ -456,7 +456,7 @@ export async function PUT(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
     `;
 
     if (!rows[0]) {
@@ -565,7 +565,7 @@ export async function DELETE(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
     `;
 
     if (!rows[0]) {

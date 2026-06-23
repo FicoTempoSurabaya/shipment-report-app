@@ -85,6 +85,10 @@ Endpoint admin-only mewajibkan `X-Setra-User-Email` cocok dengan `SPREADSHEET_OW
   - `jam_pulang >= jam_berangkat` divalidasi backend.
   - `terkirim <= jumlah_toko` divalidasi backend.
   - Jika `gagal > 0`, `alasan` wajib diisi.
+  - Kolom spreadsheet `alasan` memakai teks biasa, bukan JSON mentah.
+    Contoh: `Toko Tutup; Tidak Cukup Waktu; Lainnya: Jalan ditutup`.
+  - Backend mengubah teks `alasan` dari spreadsheet menjadi `jsonb` untuk database,
+    lalu saat pull dari database mengubah `jsonb` kembali menjadi teks biasa.
   - `DELETE` memerlukan `__shipment_id`.
 
 - `locking` push:

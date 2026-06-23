@@ -46,7 +46,7 @@ export async function GET(request: Request) {
         s.jumlah_toko,
         s.terkirim,
         s.gagal,
-        COALESCE(s.alasan, '[]'::JSONB) AS alasan,
+        COALESCE(s.alasan, '') AS alasan,
         MD5(CONCAT_WS('|',
           s.shipment_id::TEXT,
           s.area_id,
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
           s.jumlah_toko::TEXT,
           s.terkirim::TEXT,
           s.gagal::TEXT,
-          COALESCE(s.alasan::TEXT, '')
+          COALESCE(s.alasan, '')
         )) AS __row_hash
       FROM shipments s
       LEFT JOIN users u

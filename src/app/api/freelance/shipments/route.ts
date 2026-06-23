@@ -135,7 +135,7 @@ export async function POST(request: Request) {
         ${payload.jam_pulang ?? null}::TIME,
         ${payload.jumlah_toko},
         ${payload.terkirim},
-        ${alasanForDb}::JSONB
+        ${alasanForDb}
       )
       RETURNING
         shipment_id,

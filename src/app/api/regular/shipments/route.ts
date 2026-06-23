@@ -304,7 +304,7 @@ export async function POST(request: Request) {
         ${payload.jam_pulang ?? null}::TIME,
         ${payload.jumlah_toko},
         ${payload.terkirim},
-        ${alasanForDb}::JSONB
+        ${alasanForDb}
       )
       RETURNING
         shipment_id,
@@ -321,7 +321,7 @@ export async function POST(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
     `;
 
     return NextResponse.json(
@@ -478,7 +478,7 @@ export async function PUT(request: Request) {
         jam_pulang = ${payload.jam_pulang ?? null}::TIME,
         jumlah_toko = ${payload.jumlah_toko},
         terkirim = ${payload.terkirim},
-        alasan = ${alasanForDb}::JSONB
+        alasan = ${alasanForDb}
       WHERE shipment_id = ${payload.shipment_id}
         AND nik_kerja = ${sessionResult.session.nik_kerja}
         AND area_id = ${sessionResult.session.area_id}
@@ -498,7 +498,7 @@ export async function PUT(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
     `;
 
     if (!rows[0]) {

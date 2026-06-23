@@ -260,7 +260,7 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
-                  alasan = ${alasanForDb}::JSONB
+                  alasan = ${alasanForDb}
                 FROM users u
                 WHERE s.shipment_id = ${shipmentId}::BIGINT
                   AND s.area_id = ${auth.context.areaId}
@@ -280,7 +280,7 @@ export async function POST(request: Request) {
                   s.jumlah_toko,
                   s.terkirim,
                   s.gagal,
-                  COALESCE(s.alasan, '[]'::JSONB) AS alasan
+                  COALESCE(s.alasan, '') AS alasan
               `
             : await query<ShipmentDbRow>`
                 INSERT INTO shipments (
@@ -307,7 +307,7 @@ export async function POST(request: Request) {
                   ${jamPulang}::TIME,
                   ${jumlahToko},
                   ${terkirim},
-                  ${alasanForDb}::JSONB
+                  ${alasanForDb}
                 )
                 RETURNING
                   shipment_id::TEXT AS shipment_id,
@@ -324,7 +324,7 @@ export async function POST(request: Request) {
                   jumlah_toko,
                   terkirim,
                   gagal,
-                  COALESCE(alasan, '[]'::JSONB) AS alasan
+                  COALESCE(alasan, '') AS alasan
               `;
         } else {
           const namaFreelance = toRequiredString(row.nama_freelance, "nama_freelance");
@@ -342,7 +342,7 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
-                  alasan = ${alasanForDb}::JSONB
+                  alasan = ${alasanForDb}
                 WHERE shipment_id = ${shipmentId}::BIGINT
                   AND area_id = ${auth.context.areaId}
                 RETURNING
@@ -360,7 +360,7 @@ export async function POST(request: Request) {
                   jumlah_toko,
                   terkirim,
                   gagal,
-                  COALESCE(alasan, '[]'::JSONB) AS alasan
+                  COALESCE(alasan, '') AS alasan
               `
             : await query<ShipmentDbRow>`
                 INSERT INTO shipments (
@@ -387,7 +387,7 @@ export async function POST(request: Request) {
                   ${jamPulang}::TIME,
                   ${jumlahToko},
                   ${terkirim},
-                  ${alasanForDb}::JSONB
+                  ${alasanForDb}
                 )
                 RETURNING
                   shipment_id::TEXT AS shipment_id,
@@ -404,7 +404,7 @@ export async function POST(request: Request) {
                   jumlah_toko,
                   terkirim,
                   gagal,
-                  COALESCE(alasan, '[]'::JSONB) AS alasan
+                  COALESCE(alasan, '') AS alasan
               `;
         }
 

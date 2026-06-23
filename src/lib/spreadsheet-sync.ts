@@ -261,7 +261,7 @@ export function normalizeFailureReasonsForDb(params: {
   const text = toRequiredString(params.alasan, "alasan");
 
   if (failureReasonSet.has(text)) {
-    return JSON.stringify([{ reason: text }]);
+    return text;
   }
 
   try {
@@ -269,13 +269,13 @@ export function normalizeFailureReasonsForDb(params: {
     const normalized = normalizeFailureReasonsArray(parsed);
 
     if (normalized.length > 0) {
-      return JSON.stringify(normalized);
+      return formatFailureReasonsForSheet(normalized);
     }
   } catch {
-    // Fallback ke Lainnya di bawah.
+    // Fallback ke teks biasa di bawah.
   }
 
-  return JSON.stringify([{ reason: "Lainnya", note: text }]);
+  return text;
 }
 
 export function formatFailureReasonsForSheet(value: unknown): string {
@@ -283,10 +283,22 @@ export function formatFailureReasonsForSheet(value: unknown): string {
     return "";
   }
 
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      return "";
+    }
+
+    if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+      return trimmed;
+    }
+  }
+
   const normalized = normalizeFailureReasonsArray(value);
 
   if (normalized.length === 0) {
-    return "";
+    return typeof value === "string" ? value.trim() : "";
   }
 
   return normalized

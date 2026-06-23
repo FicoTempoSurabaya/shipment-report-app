@@ -338,12 +338,21 @@ export function FailureReasonInput({
               </div>
             </div>
 
-            <textarea
-              className="ind-input min-h-28 resize-none placeholder:text-[var(--muted)]"
+            <input
+              className="ind-input placeholder:text-[var(--muted)]"
+              type="text"
               placeholder="Contoh: toko pindah lokasi, akses jalan ditutup, penerima tidak ada..."
               value={otherDraft}
               autoFocus
               onChange={(event) => setOtherDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") {
+                  return;
+                }
+
+                event.preventDefault();
+                saveOtherReason();
+              }}
             />
           </div>
         </div>

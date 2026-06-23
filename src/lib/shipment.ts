@@ -84,6 +84,24 @@ export function normalizeFailureReason(
     : { reason: record.reason };
 }
 
+function parseFailureReasonText(text: string): ShipmentFailureReason[] {
+  return text
+    .split(/[;\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) => {
+      const [rawReason, ...noteParts] = part.split(":");
+      const reason = rawReason.trim();
+      const note = noteParts.join(":").trim();
+
+      if (isFailureReason(reason)) {
+        return note ? [{ reason, note }] : [{ reason }];
+      }
+
+      return [{ reason: "Lainnya" as const, note: part }];
+    });
+}
+
 export function parseShipmentFailureReasons(
   value: unknown,
 ): ShipmentFailureReason[] {
@@ -108,20 +126,32 @@ export function parseShipmentFailureReasons(
       return [{ reason: trimmed }];
     }
 
-    try {
-      return parseShipmentFailureReasons(JSON.parse(trimmed));
-    } catch {
-      return [];
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        return parseShipmentFailureReasons(JSON.parse(trimmed));
+      } catch {
+        return parseFailureReasonText(trimmed);
+      }
     }
+
+    return parseFailureReasonText(trimmed);
   }
 
   return [];
 }
 
+export function formatShipmentFailureReasonsText(value: unknown): string {
+  const normalizedAlasan = parseShipmentFailureReasons(value);
+
+  return normalizedAlasan
+    .map((item) => (item.note ? `${item.reason}: ${item.note}` : item.reason))
+    .join("; ");
+}
+
 export function resolveShipmentFailureReasonsForDb(params: {
   jumlah_toko: number;
   terkirim: number;
-  alasan?: ShipmentFailureReason[] | null;
+  alasan?: ShipmentFailureReason[] | string | null;
 }) {
   const gagal = params.jumlah_toko - params.terkirim;
 
@@ -129,6 +159,5 @@ export function resolveShipmentFailureReasonsForDb(params: {
     return null;
   }
 
-  const normalizedAlasan = parseShipmentFailureReasons(params.alasan ?? []);
-  return JSON.stringify(normalizedAlasan);
+  return formatShipmentFailureReasonsText(params.alasan ?? []);
 }

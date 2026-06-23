@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { parseShipmentFailureReasons } from "@/lib/shipment";
 import {
   FAILURE_REASONS,
   type FailureReason,
@@ -113,35 +114,7 @@ function isActiveShipmentCode(shipmentCode: string | null | undefined): boolean 
 }
 
 function parseAlasan(value: unknown): ShipmentFailureReason[] {
-  if (!value) {
-    return [];
-  }
-
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeFailureReason(item))
-      .filter((item): item is ShipmentFailureReason => Boolean(item));
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-
-    if (!trimmed) {
-      return [];
-    }
-
-    if (isFailureReason(trimmed)) {
-      return [{ reason: trimmed }];
-    }
-
-    try {
-      return parseAlasan(JSON.parse(trimmed));
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
+  return parseShipmentFailureReasons(value);
 }
 
 export async function GET(
@@ -221,7 +194,7 @@ export async function GET(
         s.jumlah_toko,
         s.terkirim,
         s.gagal,
-        COALESCE(s.alasan, '[]'::JSONB) AS alasan
+        COALESCE(s.alasan, '') AS alasan
       FROM users u
       LEFT JOIN shipments s
         ON s.nik_kerja = u.nik_kerja
@@ -249,7 +222,7 @@ export async function GET(
         s.jumlah_toko,
         s.terkirim,
         s.gagal,
-        COALESCE(s.alasan, '[]'::JSONB) AS alasan
+        COALESCE(s.alasan, '') AS alasan
       FROM shipments s
       WHERE s.area_id = ${areaId}
         AND s.is_freelance = TRUE

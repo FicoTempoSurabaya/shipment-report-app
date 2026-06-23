@@ -15,7 +15,7 @@ export const SHIPMENT_STATUS = [
 
 export const FAILURE_REASONS = [
   "Toko Tutup",
-  "Salah/Dobel Order",
+  "Dobel/Salah Order",
   "Tidak Cukup Waktu",
   "Ditolak",
   "Lainnya",

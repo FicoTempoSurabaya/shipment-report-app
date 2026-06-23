@@ -251,7 +251,7 @@ export async function GET(request: Request) {
         jumlah_toko,
         terkirim,
         gagal,
-        COALESCE(alasan, '[]'::JSONB) AS alasan
+        COALESCE(alasan, '') AS alasan
       FROM shipments
       WHERE nik_kerja = ${session.nik_kerja}
         AND area_id = ${session.area_id}

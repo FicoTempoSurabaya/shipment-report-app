@@ -65,12 +65,32 @@ function normalizeFailureReasons(value: unknown): ShipmentFailureReason[] {
   }
 
   if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return normalizeFailureReasons(parsed);
-    } catch {
+    const trimmed = value.trim();
+
+    if (!trimmed) {
       return [];
     }
+
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return normalizeFailureReasons(parsed);
+      } catch {
+        // Fallback ke format teks biasa di bawah.
+      }
+    }
+
+    return trimmed
+      .split(/[;\n]+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const [rawReason, ...noteParts] = part.split(":");
+        const reason = rawReason.trim();
+        const note = noteParts.join(":").trim();
+
+        return note ? { reason, note } : { reason };
+      }) as ShipmentFailureReason[];
   }
 
   return [];
