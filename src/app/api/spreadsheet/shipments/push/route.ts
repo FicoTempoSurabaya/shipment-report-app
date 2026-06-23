@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import { query } from "@/lib/db";
@@ -7,6 +9,7 @@ import {
   SYNC_STATUS,
   assertEndTimeAfterStartTime,
   buildPushSummary,
+  formatFailureReasonsForSheet,
   getDatabaseErrorCode,
   getSyncAction,
   isBlankSpreadsheetRow,
@@ -21,7 +24,7 @@ import {
   toRequiredString,
   type SpreadsheetRow,
 } from "@/lib/spreadsheet-sync";
-import type { ShipmentFailureReason, ShipmentStatus } from "@/types/shipment";
+import type { ShipmentStatus } from "@/types/shipment";
 
 type SpreadsheetShipmentsPayload = {
   rows?: SpreadsheetRow[];
@@ -47,7 +50,7 @@ type ShipmentDbRow = {
   jumlah_toko: number;
   terkirim: number;
   gagal: number;
-  alasan: ShipmentFailureReason[] | null;
+  alasan: string | null;
 };
 
 const BUSINESS_HEADERS = [
@@ -126,9 +129,32 @@ async function resolveRegularUser(params: {
   return users[0];
 }
 
-function buildSheetValues(row: ShipmentDbRow) {
+function buildShipmentRowHash(row: ShipmentDbRow) {
+  return createHash("md5")
+    .update(
+      [
+        row.shipment_id,
+        row.area_id,
+        row.nik_kerja ?? "",
+        String(row.is_freelance),
+        row.nama_freelance ?? "",
+        row.tanggal_shipment,
+        row.shipment_code,
+        row.jam_berangkat ?? "",
+        row.jam_pulang ?? "",
+        String(row.jumlah_toko),
+        String(row.terkirim),
+        String(row.gagal),
+        row.alasan ?? "",
+      ].join("|"),
+    )
+    .digest("hex");
+}
+
+function buildSheetValues(row: ShipmentDbRow, operation: "created" | "updated") {
   const statusKerja = row.is_freelance ? "freelance" : "regular";
   const shipmentCodeType = /^\d{10}$/.test(row.shipment_code) ? "AKTIF" : "NON_AKTIF";
+  const syncedAt = new Date().toISOString();
 
   return {
     area_id: row.area_id,
@@ -143,12 +169,16 @@ function buildSheetValues(row: ShipmentDbRow) {
     jumlah_toko: row.jumlah_toko,
     terkirim: row.terkirim,
     gagal: row.gagal,
+    alasan: formatFailureReasonsForSheet(row.alasan),
     __shipment_id: row.shipment_id,
     __is_freelance: row.is_freelance,
     __shipment_code_type: shipmentCodeType,
     __sync_action: "UPSERT",
     __sync_status: "SYNCED",
-    __sync_message: "Shipment tersimpan",
+    __sync_message: operation === "created" ? "Shipment baru tersimpan" : "Shipment diperbarui",
+    __last_synced_at: syncedAt,
+    __row_hash: buildShipmentRowHash(row),
+    __operation: operation,
   };
 }
 
@@ -260,7 +290,8 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
-                  alasan = ${alasanForDb}
+                  alasan = ${alasanForDb},
+                  updated_at = NOW()
                 FROM users u
                 WHERE s.shipment_id = ${shipmentId}::BIGINT
                   AND s.area_id = ${auth.context.areaId}
@@ -342,7 +373,8 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
-                  alasan = ${alasanForDb}
+                  alasan = ${alasanForDb},
+                  updated_at = NOW()
                 WHERE shipment_id = ${shipmentId}::BIGINT
                   AND area_id = ${auth.context.areaId}
                 RETURNING
@@ -419,7 +451,7 @@ export async function POST(request: Request) {
             row,
             status: SYNC_STATUS.SYNCED,
             message: "Shipment tersimpan",
-            values: buildSheetValues(savedShipment),
+            values: buildSheetValues(savedShipment, shipmentId ? "updated" : "created"),
           }),
         );
       } catch (error) {

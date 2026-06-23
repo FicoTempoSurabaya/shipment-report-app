@@ -6,10 +6,10 @@
 
 const SETRA = Object.freeze({
   MENU_NAME: 'Setra',
-  TEMPLATE_VERSION: '1.0.0',
+  TEMPLATE_VERSION: '1.1.0-final',
   HEADER_ROW: 1,
   DATA_START_ROW: 2,
-  MAX_DATA_ROWS: 5000,
+  MAX_DATA_ROWS: 20000,
 
   SHEETS: Object.freeze({
     CONFIG: '_config',
@@ -43,6 +43,7 @@ const SETRA = Object.freeze({
     USERS_PULL: '/api/spreadsheet/users/pull',
     SHIPMENTS_PUSH: '/api/spreadsheet/shipments/push',
     SHIPMENTS_PULL: '/api/spreadsheet/shipments/pull',
+    SHIPMENTS_BULK_DELETE: '/api/spreadsheet/shipments/bulk-delete',
     LOCKING_PUSH: '/api/spreadsheet/locking/push',
     LOCKING_PULL: '/api/spreadsheet/locking/pull',
     AREA_PUSH: '/api/spreadsheet/area/push',
@@ -99,6 +100,7 @@ const SETRA = Object.freeze({
         '__sync_status',
         '__sync_message',
         '__last_synced_at',
+        '__row_hash',
       ],
       businessHeaders: [
         'status_kerja',
@@ -150,6 +152,7 @@ const SETRA = Object.freeze({
     SYNCED: 'SYNCED',
     ERROR: 'ERROR',
     SKIPPED: 'SKIPPED',
+    CONFLICT: 'CONFLICT',
   }),
 });
 

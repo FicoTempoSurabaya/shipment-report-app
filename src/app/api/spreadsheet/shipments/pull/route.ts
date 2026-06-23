@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { validateSpreadsheetRequest } from "@/lib/spreadsheet-auth";
 import { formatFailureReasonsForSheet } from "@/lib/spreadsheet-sync";
-import type { ShipmentFailureReason } from "@/types/shipment";
 
 type ShipmentPullDbRow = {
   shipment_id: string;
@@ -19,9 +18,38 @@ type ShipmentPullDbRow = {
   jumlah_toko: number;
   terkirim: number;
   gagal: number;
-  alasan: ShipmentFailureReason[] | null;
+  alasan: string | null;
   __row_hash: string;
+  __updated_at: string;
 };
+
+function normalizeLimit(value: string | null): number {
+  const parsed = Number(value ?? 500);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 500;
+  }
+
+  return Math.min(parsed, 1000);
+}
+
+function parseCursor(value: string | null) {
+  const text = String(value ?? "").trim();
+
+  if (!text) {
+    return {
+      updatedAt: "",
+      shipmentId: "0",
+    };
+  }
+
+  const [updatedAt = "", shipmentId = "0"] = text.split("||");
+
+  return {
+    updatedAt,
+    shipmentId: /^\d+$/.test(shipmentId) ? shipmentId : "0",
+  };
+}
 
 export async function GET(request: Request) {
   const auth = await validateSpreadsheetRequest(request);
@@ -31,6 +59,12 @@ export async function GET(request: Request) {
   }
 
   try {
+    const url = new URL(request.url);
+    const updatedAfter = url.searchParams.get("updated_after")?.trim() ?? "";
+    const limit = normalizeLimit(url.searchParams.get("limit"));
+    const cursor = parseCursor(url.searchParams.get("cursor"));
+    const fetchedAt = new Date().toISOString();
+
     const rows = await query<ShipmentPullDbRow>`
       SELECT
         s.shipment_id::TEXT AS shipment_id,
@@ -61,13 +95,27 @@ export async function GET(request: Request) {
           s.terkirim::TEXT,
           s.gagal::TEXT,
           COALESCE(s.alasan, '')
-        )) AS __row_hash
+        )) AS __row_hash,
+        s.updated_at::TEXT AS __updated_at
       FROM shipments s
       LEFT JOIN users u
         ON u.nik_kerja = s.nik_kerja
         AND u.area_id = s.area_id
       WHERE s.area_id = ${auth.context.areaId}
-      ORDER BY s.tanggal_shipment DESC, s.shipment_id DESC
+        AND (
+          NULLIF(${updatedAfter}, '')::TIMESTAMPTZ IS NULL
+          OR s.updated_at > NULLIF(${updatedAfter}, '')::TIMESTAMPTZ
+        )
+        AND (
+          NULLIF(${cursor.updatedAt}, '')::TIMESTAMPTZ IS NULL
+          OR s.updated_at > NULLIF(${cursor.updatedAt}, '')::TIMESTAMPTZ
+          OR (
+            s.updated_at = NULLIF(${cursor.updatedAt}, '')::TIMESTAMPTZ
+            AND s.shipment_id > ${cursor.shipmentId}::BIGINT
+          )
+        )
+      ORDER BY s.updated_at ASC, s.shipment_id ASC
+      LIMIT ${limit}
     `;
 
     const sheetRows = rows.map((row) => {
@@ -94,15 +142,20 @@ export async function GET(request: Request) {
         __sync_action: "UPSERT",
         __sync_status: "SYNCED",
         __sync_message: "Data dari database",
-        __last_synced_at: new Date().toISOString(),
+        __last_synced_at: fetchedAt,
         __row_hash: row.__row_hash,
       };
     });
+
+    const lastRow = rows[rows.length - 1];
+    const nextCursor = rows.length === limit && lastRow ? `${lastRow.__updated_at}||${lastRow.shipment_id}` : "";
 
     return NextResponse.json({
       ok: true,
       message: "Data shipments berhasil diambil dari database",
       rows: sheetRows,
+      next_cursor: nextCursor,
+      fetched_at: fetchedAt,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gagal mengambil shipments untuk spreadsheet";

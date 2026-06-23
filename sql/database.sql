@@ -33,6 +33,8 @@ CREATE TABLE users (
   username varchar(100) NOT NULL UNIQUE,
   password text NOT NULL,
   is_active boolean DEFAULT true NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL,
 
   CONSTRAINT users_area_id_fkey
     FOREIGN KEY (area_id)
@@ -102,11 +104,10 @@ CREATE TABLE shipments (
   gagal integer GENERATED ALWAYS AS (jumlah_toko - terkirim) STORED,
 
   /*
-    alasan boleh NULL.
-    Jika gagal = 0, alasan wajib NULL.
-    Jika gagal > 0, alasan boleh berupa JSON array.
+    alasan disimpan sebagai teks biasa agar mudah dibaca/ditulis dari Google Sheets, DBeaver, dan aplikasi lain.
+    Contoh: Toko Tutup; Tidak Cukup Waktu; Lainnya: jalan ditutup
   */
-  alasan jsonb,
+  alasan text,
 
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -150,11 +151,6 @@ CREATE TABLE shipments (
   CONSTRAINT shipments_terkirim_max_check
     CHECK (terkirim <= jumlah_toko),
 
-  CONSTRAINT shipments_alasan_nullable_array_check
-    CHECK (
-      alasan IS NULL
-      OR jsonb_typeof(alasan) = 'array'
-    ),
 
   CONSTRAINT shipments_alasan_null_when_no_failure_check
     CHECK (
@@ -236,6 +232,11 @@ EXECUTE FUNCTION validate_kunci_shipment_user_area();
 
 CREATE TRIGGER trg_kunci_shipment_updated_at
 BEFORE UPDATE ON kunci_shipment
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_users_updated_at
+BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 

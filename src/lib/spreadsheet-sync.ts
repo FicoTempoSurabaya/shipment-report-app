@@ -2,9 +2,11 @@ import { FAILURE_REASONS, SHIPMENT_STATUS, type ShipmentFailureReason, type Ship
 import { USER_JABATAN, type UserJabatan } from "@/types/user";
 
 export const SYNC_STATUS = {
+  PENDING: "PENDING",
   SYNCED: "SYNCED",
   ERROR: "ERROR",
   SKIPPED: "SKIPPED",
+  CONFLICT: "CONFLICT",
 } as const;
 
 export const SYNC_ACTION = {

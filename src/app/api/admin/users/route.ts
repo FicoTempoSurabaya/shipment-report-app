@@ -16,6 +16,8 @@ type AdminRegularUserRow = {
   username: string;
   password: string;
   is_active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 function getDatabaseErrorCode(error: unknown): string | null {
@@ -107,7 +109,9 @@ export async function GET(request: Request) {
           jabatan,
           username,
           password,
-          is_active
+          is_active,
+          created_at::TEXT AS created_at,
+          updated_at::TEXT AS updated_at
         FROM users
         WHERE area_id = ${areaId}
           AND user_role = 'regular'
@@ -133,7 +137,9 @@ export async function GET(request: Request) {
         jabatan,
         username,
         password,
-        is_active
+        is_active,
+        created_at::TEXT AS created_at,
+        updated_at::TEXT AS updated_at
       FROM users
       WHERE area_id = ${areaId}
         AND user_role = 'regular'
@@ -215,7 +221,9 @@ export async function POST(request: Request) {
         jabatan,
         username,
         password,
-        is_active
+        is_active,
+        created_at::TEXT AS created_at,
+        updated_at::TEXT AS updated_at
     `;
 
     return NextResponse.json(
@@ -315,7 +323,9 @@ export async function PUT(request: Request) {
         jabatan,
         username,
         password,
-        is_active
+        is_active,
+        created_at::TEXT AS created_at,
+        updated_at::TEXT AS updated_at
     `;
 
     if (!rows[0]) {
