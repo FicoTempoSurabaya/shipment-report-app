@@ -350,12 +350,13 @@ export function ShipmentModal({
                   />
                 ) : (
                   <button
-                    className="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] px-3 py-2 text-xs font-bold text-[var(--muted)] opacity-70"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center border-2 border-[var(--border-soft)] bg-[var(--surface-soft)] p-0 text-[var(--muted)] opacity-70"
                     type="button"
+                    aria-label="Scan barcode"
+                    title="Scan barcode"
                     disabled
                   >
                     <Camera className="h-4 w-4" />
-                    Scan Barcode
                   </button>
                 )}
               </div>

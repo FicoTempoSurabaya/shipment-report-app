@@ -180,12 +180,13 @@ export function BarcodeScanner({ onDetected }: BarcodeScannerProps) {
   return (
     <>
       <button
-        className="ind-btn-ghost px-3 py-2 text-xs"
+        className="ind-btn-ghost flex h-11 w-11 shrink-0 items-center justify-center p-0"
         type="button"
+        aria-label="Scan barcode"
+        title="Scan barcode"
         onClick={() => setIsOpen(true)}
       >
         <Camera className="h-4 w-4" />
-        Scan Barcode
       </button>
 
       {isOpen ? (
