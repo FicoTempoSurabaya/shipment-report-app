@@ -17,7 +17,7 @@ export const FAILURE_REASONS = [
   "Toko Tutup",
   "Dobel/Salah Order",
   "Tidak Cukup Waktu",
-  "Ditolak",
+  "Ditolak Toko",
   "Lainnya",
 ] as const;
 
