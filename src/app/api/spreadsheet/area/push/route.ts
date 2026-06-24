@@ -24,10 +24,31 @@ type AreaRow = {
   area_id: string;
   nama_area: string;
   sla_area: number;
+  area_timezone: string;
   is_active: boolean;
 };
 
-const BUSINESS_HEADERS = ["area_id", "nama_area", "sla_area", "is_active"];
+const ALLOWED_AREA_TIMEZONES = new Set([
+  "Asia/Jakarta",
+  "Asia/Makassar",
+  "Asia/Jayapura",
+]);
+
+const BUSINESS_HEADERS = ["area_id", "nama_area", "sla_area", "area_timezone", "is_active"];
+
+function toAreaTimezone(value: unknown): string {
+  const text = String(value ?? "").trim();
+
+  if (!text) {
+    return "Asia/Jakarta";
+  }
+
+  if (!ALLOWED_AREA_TIMEZONES.has(text)) {
+    throw new Error("area_timezone harus Asia/Jakarta, Asia/Makassar, atau Asia/Jayapura");
+  }
+
+  return text;
+}
 
 export async function POST(request: Request) {
   const auth = await validateSpreadsheetRequest(request);
@@ -67,7 +88,7 @@ export async function POST(request: Request) {
             UPDATE area
             SET is_active = FALSE
             WHERE area_id = ${areaId}
-            RETURNING area_id, nama_area, sla_area, is_active
+            RETURNING area_id, nama_area, sla_area, area_timezone, is_active
           `;
 
           if (!updated[0]) {
@@ -93,17 +114,19 @@ export async function POST(request: Request) {
 
         const namaArea = toRequiredString(row.nama_area, "nama_area");
         const slaArea = toNonNegativeInteger(row.sla_area, "sla_area");
+        const areaTimezone = toAreaTimezone(row.area_timezone);
         const isActive = toBoolean(row.is_active, true);
 
         const saved = await query<AreaRow>`
-          INSERT INTO area (area_id, nama_area, sla_area, is_active)
-          VALUES (${areaId}, ${namaArea}, ${slaArea}, ${isActive})
+          INSERT INTO area (area_id, nama_area, sla_area, area_timezone, is_active)
+          VALUES (${areaId}, ${namaArea}, ${slaArea}, ${areaTimezone}, ${isActive})
           ON CONFLICT (area_id)
           DO UPDATE SET
             nama_area = EXCLUDED.nama_area,
             sla_area = EXCLUDED.sla_area,
+            area_timezone = EXCLUDED.area_timezone,
             is_active = EXCLUDED.is_active
-          RETURNING area_id, nama_area, sla_area, is_active
+          RETURNING area_id, nama_area, sla_area, area_timezone, is_active
         `;
 
         results.push(

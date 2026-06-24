@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { BarcodeScanner } from "@/components/shipment/BarcodeScanner";
 import { FailureReasonInput } from "@/components/shipment/FailureReasonInput";
 import { StatusShipmentSelect } from "@/components/shipment/StatusShipmentSelect";
+import { formatDateOnlyId } from "@/lib/date";
 import type { ShipmentFailureReason, ShipmentStatus } from "@/types/shipment";
 
 export type RegularShipmentForModal = {
@@ -113,6 +114,7 @@ export function ShipmentModal({
   const [terkirim, setTerkirim] = useState("");
   const [alasan, setAlasan] = useState<ShipmentFailureReason[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const displayedDate = date ? formatDateOnlyId(date) : "";
 
   const isShipmentInputEnabled = statusShipment === "Aktif";
   const jumlahTokoNumber = jumlahToko === "" ? 0 : Number(jumlahToko);
@@ -293,7 +295,7 @@ export function ShipmentModal({
               {mode === "edit" ? "Edit Shipment" : "Input Shipment"}
             </p>
             <h2 className="ind-heading mt-2 text-2xl">{user.nama_lengkap}</h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">{date}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{displayedDate}</p>
           </div>
 
           <button
@@ -315,7 +317,7 @@ export function ShipmentModal({
               <input
                 className="ind-input cursor-not-allowed text-[var(--muted)]"
                 readOnly
-                value={date}
+                value={displayedDate}
               />
             </label>
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { normalizeDateOnlyInput } from "@/lib/date";
 import { FAILURE_REASONS, SHIPMENT_STATUS } from "@/types/shipment";
 import {
   USER_JABATAN as USER_JABATAN_VALUES,
@@ -8,7 +9,19 @@ import {
 
 const dateStringSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal harus YYYY-MM-DD");
+  .trim()
+  .transform((value, ctx) => {
+    try {
+      return normalizeDateOnlyInput(value, "Tanggal");
+    } catch (error) {
+      ctx.addIssue({
+        code: "custom",
+        message: error instanceof Error ? error.message : "Format tanggal tidak valid",
+      });
+
+      return z.NEVER;
+    }
+  });
 
 const timeStringSchema = z
   .string()

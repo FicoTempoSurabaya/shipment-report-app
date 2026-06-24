@@ -46,12 +46,14 @@ function parseAppsScriptJson(text: string): AppsScriptConnectResponse {
 export async function createAreaSpreadsheetViaAppsScript(params: {
   area_id: string;
   area_name: string;
+  area_timezone?: string | null;
 }): Promise<AppsScriptSpreadsheetResult> {
   const webAppUrl = requireEnv("GOOGLE_APPS_SCRIPT_CONNECT_URL");
   const connectSecret = requireEnv("GOOGLE_APPS_SCRIPT_CONNECT_SECRET");
   const webhookSecret = requireEnv("SPREADSHEET_WEBHOOK_SECRET");
   const templateSpreadsheetId = requireEnv("GOOGLE_SPREADSHEET_TEMPLATE_ID");
   const apiBaseUrl = requireEnv("NEXT_PUBLIC_APP_URL");
+  const spreadsheetTimezone = params.area_timezone?.trim() || optionalEnv("SPREADSHEET_DEFAULT_TIMEZONE") || "Asia/Jakarta";
   const spreadsheetName = makeSpreadsheetName(params.area_name);
 
   const response = await fetch(webAppUrl, {
@@ -68,6 +70,7 @@ export async function createAreaSpreadsheetViaAppsScript(params: {
       template_spreadsheet_id: templateSpreadsheetId,
       output_folder_id: optionalEnv("GOOGLE_DRIVE_FOLDER_ID"),
       api_base_url: apiBaseUrl,
+      timezone: spreadsheetTimezone,
       owner_email: optionalEnv("SPREADSHEET_OWNER_EMAIL"),
       superadmin_emails: optionalEnv("SPREADSHEET_SUPERADMIN_EMAILS"),
     }),

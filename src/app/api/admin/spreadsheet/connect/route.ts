@@ -9,6 +9,7 @@ type AreaSpreadsheetRow = {
   nama_area: string;
   spreadsheet_id: string | null;
   spreadsheet_url: string | null;
+  area_timezone: string | null;
 };
 
 async function validateAdminSession() {
@@ -69,7 +70,10 @@ function toSpreadsheetData(area: AreaSpreadsheetRow) {
   const isConnected = Boolean(area.spreadsheet_id && area.spreadsheet_url);
 
   return {
-    ...area,
+    area_id: area.area_id,
+    nama_area: area.nama_area,
+    spreadsheet_id: area.spreadsheet_id,
+    spreadsheet_url: area.spreadsheet_url,
     is_connected: isConnected,
     button_label: isConnected ? "Buka" : "Hubungkan",
   };
@@ -88,7 +92,8 @@ export async function POST() {
         area_id,
         nama_area,
         spreadsheet_id,
-        spreadsheet_url
+        spreadsheet_url,
+        COALESCE(area_timezone, 'Asia/Jakarta') AS area_timezone
       FROM area
       WHERE area_id = ${sessionResult.areaId}
         AND is_active = TRUE
@@ -120,6 +125,7 @@ export async function POST() {
     const connectedSpreadsheet = await createAreaSpreadsheetViaAppsScript({
       area_id: existingArea.area_id,
       area_name: existingArea.nama_area,
+      area_timezone: existingArea.area_timezone,
     });
 
     const updatedRows = await query<AreaSpreadsheetRow>`
@@ -133,7 +139,8 @@ export async function POST() {
         area_id,
         nama_area,
         spreadsheet_id,
-        spreadsheet_url
+        spreadsheet_url,
+        COALESCE(area_timezone, 'Asia/Jakarta') AS area_timezone
     `;
 
     const updatedArea = updatedRows[0];

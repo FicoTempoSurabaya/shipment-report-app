@@ -8,18 +8,18 @@ function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const shipmentsMenu = ui
     .createMenu('Shipments')
-    .addItem('update', 'setraUpdateShipmentsToDatabase')
-    .addItem('fetching', 'setraFetchingShipmentsFromDatabase')
-    .addItem('hapus data tercentang', 'setraDeleteCheckedShipments');
+    .addItem('📤 Update', 'setraUpdateShipmentsToDatabase')
+    .addItem('📥 Fetching', 'setraFetchingShipmentsFromDatabase')
+    .addItem('⛔ Delete Selected Row', 'setraDeleteCheckedShipments');
 
   ui.createMenu(SETRA.MENU_NAME)
-    .addItem('Users', 'setraSyncUsers')
-    .addItem('Locking', 'setraSyncLocking')
+    .addItem('😎 Users', 'setraSyncUsers')
+    .addItem('🔒 Locking', 'setraSyncLocking')
     .addSubMenu(shipmentsMenu)
     .addSeparator()
-    .addItem('Reconciliation', 'setraRefreshRekonsil')
+    .addItem('📑 Reconciliation', 'setraRefreshRekonsil')
     .addSeparator()
-    .addItem('Report_Performance', 'setraProcessDailyReport')
+    .addItem('📅 Report Performance', 'setraProcessDailyReport')
     .addToUi();
 
   try {

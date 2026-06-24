@@ -354,7 +354,7 @@ function setraReadAllRowsAsObjects_(sheetName) {
     for (let c = 0; c < headers.length; c += 1) {
       const header = headers[c];
       if (!header) continue;
-      obj[header] = setraNormalizeCellValueForPayload_(values[i][c]);
+      obj[header] = setraNormalizeCellValueForPayload_(values[i][c], header);
     }
 
     rows.push(obj);
@@ -739,7 +739,7 @@ function setraReadShipmentRowsForUpdate_() {
     for (let c = 0; c < headers.length; c += 1) {
       const header = headers[c];
       if (!header) continue;
-      obj[header] = setraNormalizeCellValueForPayload_(rawValues[c]);
+      obj[header] = setraNormalizeCellValueForPayload_(rawValues[c], header);
     }
     rows.push(obj);
   }
@@ -780,7 +780,7 @@ function setraMergePulledShipmentRows_(pulledRows) {
     const outputRow = headers.map(function (header, index) {
       if (index === SETRA_SHIPMENTS_UI_.DELETE_COL - 1) return false;
       if (!header) return '';
-      return incoming[header] === undefined || incoming[header] === null ? '' : incoming[header];
+      return setraValueForSheet_(header, incoming[header]);
     });
 
     if (!existing) {

@@ -50,11 +50,14 @@ function doPost(e) {
     );
 
     const spreadsheet = SpreadsheetApp.openById(copiedFile.getId());
+    const timezone = String(payload.timezone || '').trim() || 'Asia/Jakarta';
+    spreadsheet.setSpreadsheetTimeZone(timezone);
     const spreadsheetUrl = spreadsheet.getUrl();
 
     updateSetraConfig_(spreadsheet, {
       AREA_ID: areaId,
       AREA_NAME: areaName,
+      TIMEZONE: timezone,
       API_BASE_URL: String(payload.api_base_url || '').trim(),
       SPREADSHEET_ID: spreadsheet.getId(),
       SPREADSHEET_URL: spreadsheetUrl,

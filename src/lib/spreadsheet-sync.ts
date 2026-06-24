@@ -1,3 +1,4 @@
+import { normalizeDateOnlyInput } from "@/lib/date";
 import { FAILURE_REASONS, SHIPMENT_STATUS, type ShipmentFailureReason, type ShipmentStatus } from "@/types/shipment";
 import { USER_JABATAN, type UserJabatan } from "@/types/user";
 
@@ -149,14 +150,7 @@ export function toNonNegativeInteger(value: unknown, label: string): number {
 }
 
 export function normalizeDate(value: unknown, label: string): string {
-  const text = toRequiredString(value, label);
-  const normalized = text.slice(0, 10);
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    throw new Error(`${label} harus format YYYY-MM-DD`);
-  }
-
-  return normalized;
+  return normalizeDateOnlyInput(toRequiredString(value, label), label);
 }
 
 export function normalizeOptionalDate(value: unknown, label: string): string | null {

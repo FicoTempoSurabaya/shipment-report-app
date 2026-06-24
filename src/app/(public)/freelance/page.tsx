@@ -7,6 +7,7 @@ import { toast, Toaster } from "sonner";
 
 import { BarcodeScanner } from "@/components/shipment/BarcodeScanner";
 import { FailureReasonInput } from "@/components/shipment/FailureReasonInput";
+import { getLocalTodayDateOnly } from "@/lib/date";
 import type { ShipmentFailureReason } from "@/types/shipment";
 
 type Area = {
@@ -41,7 +42,7 @@ type SubmitResponse = {
 };
 
 function getTodayDateString() {
-  return new Date().toISOString().slice(0, 10);
+  return getLocalTodayDateOnly();
 }
 
 export default function FreelancePage() {

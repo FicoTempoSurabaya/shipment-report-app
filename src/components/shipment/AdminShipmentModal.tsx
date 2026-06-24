@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { BarcodeScanner } from "@/components/shipment/BarcodeScanner";
 import { FailureReasonInput } from "@/components/shipment/FailureReasonInput";
 import { StatusShipmentSelect } from "@/components/shipment/StatusShipmentSelect";
+import { formatDateOnlyId } from "@/lib/date";
 import type { ShipmentFailureReason, ShipmentStatus } from "@/types/shipment";
 
 export type AdminShipmentForModal = {
@@ -120,6 +121,7 @@ export function AdminShipmentModal({
   const [terkirim, setTerkirim] = useState("");
   const [alasan, setAlasan] = useState<ShipmentFailureReason[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const displayedDate = date ? formatDateOnlyId(date) : "";
 
   const isShipmentInputEnabled = statusShipment === "Aktif";
   const jumlahTokoNumber = jumlahToko === "" ? 0 : Number(jumlahToko);
@@ -322,7 +324,7 @@ export function AdminShipmentModal({
             </p>
             <h2 className="ind-heading mt-2 text-2xl">{item.nama_lengkap}</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              {item.status} · {date}
+              {item.status} · {displayedDate}
             </p>
           </div>
 
@@ -345,7 +347,7 @@ export function AdminShipmentModal({
               <input
                 className="ind-input cursor-not-allowed text-[var(--muted)]"
                 readOnly
-                value={date}
+                value={displayedDate}
               />
             </label>
 

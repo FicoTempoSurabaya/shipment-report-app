@@ -26,6 +26,7 @@ const SETRA = Object.freeze({
   CONFIG_KEYS: Object.freeze({
     AREA_ID: 'AREA_ID',
     AREA_NAME: 'AREA_NAME',
+    TIMEZONE: 'TIMEZONE',
     API_BASE_URL: 'API_BASE_URL',
     SPREADSHEET_ID: 'SPREADSHEET_ID',
     SPREADSHEET_URL: 'SPREADSHEET_URL',
@@ -213,6 +214,14 @@ function setraGetAreaName_() {
   return setraGetConfigValue_(SETRA.CONFIG_KEYS.AREA_NAME, '');
 }
 
+function setraGetTimezone_() {
+  const configuredTimezone = setraGetConfigValue_(SETRA.CONFIG_KEYS.TIMEZONE, '');
+  if (configuredTimezone) return configuredTimezone;
+
+  const spreadsheetTimezone = setraGetSpreadsheet_().getSpreadsheetTimeZone();
+  return spreadsheetTimezone || 'Asia/Jakarta';
+}
+
 function setraGetApiBaseUrl_() {
   const baseUrl = setraGetConfigValue_(SETRA.CONFIG_KEYS.API_BASE_URL, '');
   if (!baseUrl) {
@@ -254,7 +263,7 @@ function setraGetSpreadsheetId_() {
 }
 
 function setraNowIso_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ssXXX");
+  return Utilities.formatDate(new Date(), setraGetTimezone_(), "yyyy-MM-dd'T'HH:mm:ssXXX");
 }
 
 function setraNormalizeText_(value) {

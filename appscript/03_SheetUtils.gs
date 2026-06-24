@@ -65,7 +65,7 @@ function setraReadRowsAsObjects_(sheetName, businessHeaders) {
     for (let c = 0; c < headers.length; c++) {
       const header = headers[c];
       if (!header) continue;
-      obj[header] = setraNormalizeCellValueForPayload_(rawValues[c]);
+      obj[header] = setraNormalizeCellValueForPayload_(rawValues[c], header);
     }
     rows.push(obj);
   }
@@ -89,11 +89,19 @@ function setraIsBlankBusinessRow_(headers, rowValues, businessHeaders) {
   return true;
 }
 
-function setraNormalizeCellValueForPayload_(value) {
+function setraNormalizeCellValueForPayload_(value, headerName) {
   if (value === null || value === undefined) return '';
 
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  if (setraIsDateOnlyHeader_(headerName)) {
+    return setraNormalizeDateOnlyForPayload_(value, headerName);
+  }
+
+  if (setraIsTimeOnlyHeader_(headerName)) {
+    return setraNormalizeTimeOnlyForPayload_(value, headerName);
+  }
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, setraGetTimezone_(), "yyyy-MM-dd'T'HH:mm:ssXXX");
   }
 
   if (typeof value === 'boolean') return value;
@@ -101,6 +109,90 @@ function setraNormalizeCellValueForPayload_(value) {
 
   return String(value).trim();
 }
+
+function setraIsDateOnlyHeader_(headerName) {
+  return ['tanggal_shipment', 'tanggal_awal', 'tanggal_akhir', 'tanggal_libur'].indexOf(String(headerName || '')) >= 0;
+}
+
+function setraIsTimeOnlyHeader_(headerName) {
+  return ['jam_berangkat', 'jam_pulang'].indexOf(String(headerName || '')) >= 0;
+}
+
+function setraNormalizeDateOnlyForPayload_(value, headerName) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
+  }
+
+  if (typeof value === 'number' && value > 0) {
+    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+    if (!isNaN(date.getTime())) {
+      return Utilities.formatDate(date, setraGetTimezone_(), 'yyyy-MM-dd');
+    }
+  }
+
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  let match = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:[T\s].*)?$/);
+  if (match) {
+    return setraBuildDateOnlyKey_(Number(match[1]), Number(match[2]), Number(match[3]), headerName);
+  }
+
+  match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (match) {
+    return setraBuildDateOnlyKey_(Number(match[3]), Number(match[2]), Number(match[1]), headerName);
+  }
+
+  throw new Error('Format ' + headerName + ' tidak valid: ' + text + '. Gunakan dd/mm/yyyy.');
+}
+
+function setraBuildDateOnlyKey_(year, month, day, headerName) {
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    throw new Error('Nilai ' + headerName + ' tidak valid.');
+  }
+  return String(year).padStart(4, '0') + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+}
+
+function setraNormalizeTimeOnlyForPayload_(value, headerName) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, setraGetTimezone_(), 'HH:mm');
+  }
+
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) {
+    throw new Error('Format ' + headerName + ' tidak valid. Gunakan HH:mm.');
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error('Nilai ' + headerName + ' tidak valid.');
+  }
+
+  return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+}
+
+function setraValueForSheet_(headerName, value) {
+  if (value === null || value === undefined || value === '') return '';
+
+  if (setraIsDateOnlyHeader_(headerName)) {
+    const key = setraNormalizeDateOnlyForPayload_(value, headerName);
+    if (!key) return '';
+    const parts = key.split('-').map(Number);
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  return value;
+}
+
 
 function setraClearDataRows_(sheet, columnCount) {
   const maxRows = sheet.getMaxRows();
@@ -123,7 +215,7 @@ function setraWriteObjectsToSheet_(sheetName, rows) {
   const output = dataRows.map(function (row) {
     return headers.map(function (header) {
       if (!header) return '';
-      return row[header] === undefined || row[header] === null ? '' : row[header];
+      return setraValueForSheet_(header, row[header]);
     });
   });
 
@@ -170,7 +262,7 @@ function setraApplyPushResults_(sheetName, results) {
     const values = item.values || item.updated_values || {};
     Object.keys(values).forEach(function (header) {
       if (map[header]) {
-        sheet.getRange(rowNumber, map[header]).setValue(values[header]);
+        sheet.getRange(rowNumber, map[header]).setValue(setraValueForSheet_(header, values[header]));
       }
     });
   });
@@ -200,9 +292,9 @@ function setraFormatManagedSheet_(sheetName) {
   const map = setraGetHeaderMap_(sheet);
   const maxRows = Math.max(sheet.getMaxRows() - SETRA.DATA_START_ROW + 1, 1);
 
-  if (map.tanggal_shipment) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_shipment, maxRows, 1).setNumberFormat('yyyy-mm-dd');
-  if (map.tanggal_awal) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_awal, maxRows, 1).setNumberFormat('yyyy-mm-dd');
-  if (map.tanggal_akhir) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_akhir, maxRows, 1).setNumberFormat('yyyy-mm-dd');
+  if (map.tanggal_shipment) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_shipment, maxRows, 1).setNumberFormat('dd/mm/yyyy');
+  if (map.tanggal_awal) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_awal, maxRows, 1).setNumberFormat('dd/mm/yyyy');
+  if (map.tanggal_akhir) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_akhir, maxRows, 1).setNumberFormat('dd/mm/yyyy');
   if (map.jam_berangkat) sheet.getRange(SETRA.DATA_START_ROW, map.jam_berangkat, maxRows, 1).setNumberFormat('hh:mm');
   if (map.jam_pulang) sheet.getRange(SETRA.DATA_START_ROW, map.jam_pulang, maxRows, 1).setNumberFormat('hh:mm');
   if (map.jumlah_toko) sheet.getRange(SETRA.DATA_START_ROW, map.jumlah_toko, maxRows, 1).setNumberFormat('0');
