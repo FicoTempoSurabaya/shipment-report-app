@@ -1,31 +1,31 @@
 /**
- * SETRA - Shipment Report Spreadsheet Integration
+ * SETRA - Spreadsheet Database Sync
  * File: 01_Menu.gs
- * Scope: menu bar Setra + onEdit dispatcher.
+ * Scope: menu dan dispatcher trigger.
  */
 
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
+
   const shipmentsMenu = ui
     .createMenu('Shipments')
-    .addItem('📤 Update', 'setraUpdateShipmentsToDatabase')
-    .addItem('📥 Fetching', 'setraFetchingShipmentsFromDatabase')
-    .addItem('⛔ Delete Selected Row', 'setraDeleteCheckedShipments');
+    .addItem('Updating', 'setraShipmentsUpdating')
+    .addItem('Fetching', 'setraShipmentsFetching')
+    .addItem('Deleting', 'setraShipmentsDeleting');
 
   ui.createMenu(SETRA.MENU_NAME)
-    .addItem('😎 Users', 'setraSyncUsers')
-    .addItem('🔒 Locking', 'setraSyncLocking')
+    .addItem('Users Checking', 'setraUsersChecking')
+    .addItem('Date Locking', 'setraDateLocking')
     .addSubMenu(shipmentsMenu)
     .addSeparator()
-    .addItem('📑 Reconciliation', 'setraRefreshRekonsil')
-    .addSeparator()
-    .addItem('📅 Report Performance', 'setraProcessDailyReport')
+    .addItem('Reconciliation (Tunda Dulu)', 'setraReconciliationPending')
+    .addItem('Performance (Tunda Dulu)', 'setraPerformancePending')
     .addToUi();
 
   try {
-    setraPrepareShipmentsSheet_();
+    setraSetupRuntime_();
   } catch (error) {
-    // Jangan gagalkan onOpen jika template belum lengkap.
+    setraGetSpreadsheet_().toast('Setup Setra belum lengkap: ' + (error.message || error), 'Setra', 6);
   }
 }
 
@@ -33,26 +33,16 @@ function onEdit(e) {
   if (!e || !e.range) return;
 
   try {
-    setraHandleShipmentsOnEdit_(e);
+    setraHandleOnEdit_(e);
   } catch (error) {
-    setraGetSpreadsheet_().toast('Setra shipments onEdit gagal: ' + (error.message || error), 'Setra', 5);
-  }
-
-  try {
-    setraRekonsilOnEdit_(e);
-  } catch (error) {
-    setraGetSpreadsheet_().toast('Setra rekonsil onEdit gagal: ' + (error.message || error), 'Setra', 5);
+    setraGetSpreadsheet_().toast('Setra onEdit gagal: ' + (error.message || error), 'Setra', 6);
   }
 }
 
-function setraSyncUsers() {
-  setraSyncManagedSheet_('USERS');
+function setraReconciliationPending() {
+  SpreadsheetApp.getUi().alert('Reconciliation ditunda. Kita fokus koneksi database dulu.');
 }
 
-function setraSyncShipments() {
-  setraUpdateShipmentsToDatabase();
-}
-
-function setraSyncLocking() {
-  setraSyncManagedSheet_('LOCKING');
+function setraPerformancePending() {
+  SpreadsheetApp.getUi().alert('Performance ditunda. Kita fokus koneksi database dulu.');
 }

@@ -201,10 +201,18 @@ export function assertEndTimeAfterStartTime(params: {
 }
 
 export function normalizeJabatan(value: unknown): UserJabatan {
-  const jabatan = toRequiredString(value, "jabatan");
+  const rawJabatan = toRequiredString(value, "jabatan");
+  const jabatanAlias: Record<string, UserJabatan> = {
+    Team_Leader: "Team Leader",
+    "Team Leader": "Team Leader",
+    Fico: "Field Coordinator",
+    "Field Coordinator": "Field Coordinator",
+    Driver: "Driver",
+  };
+  const jabatan = jabatanAlias[rawJabatan] ?? rawJabatan;
 
   if (!userJabatanSet.has(jabatan)) {
-    throw new Error(`jabatan tidak valid: ${jabatan}`);
+    throw new Error(`jabatan tidak valid: ${rawJabatan}`);
   }
 
   return jabatan as UserJabatan;

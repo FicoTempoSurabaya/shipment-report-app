@@ -9,8 +9,10 @@ import {
 import type { UserJabatan } from "@/types/user";
 
 type AdminRegularUserRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string;
+  area_code: string | null;
   nama_lengkap: string;
   jabatan: UserJabatan;
   username: string;
@@ -39,15 +41,7 @@ async function validateAdminSession() {
   if (!session) {
     return {
       ok: false as const,
-      response: NextResponse.json(
-        {
-          ok: false,
-          message: "Belum login",
-        },
-        {
-          status: 401,
-        },
-      ),
+      response: NextResponse.json({ ok: false, message: "Belum login" }, { status: 401 }),
     };
   }
 
@@ -55,13 +49,8 @@ async function validateAdminSession() {
     return {
       ok: false as const,
       response: NextResponse.json(
-        {
-          ok: false,
-          message: "Endpoint ini hanya untuk user admin",
-        },
-        {
-          status: 403,
-        },
+        { ok: false, message: "Endpoint ini hanya untuk user admin" },
+        { status: 403 },
       ),
     };
   }
@@ -70,22 +59,13 @@ async function validateAdminSession() {
     return {
       ok: false as const,
       response: NextResponse.json(
-        {
-          ok: false,
-          message: "Admin tidak memiliki area",
-        },
-        {
-          status: 400,
-        },
+        { ok: false, message: "Admin tidak memiliki area" },
+        { status: 400 },
       ),
     };
   }
 
-  return {
-    ok: true as const,
-    session,
-    areaId: session.area_id,
-  };
+  return { ok: true as const, session, areaId: session.area_id };
 }
 
 export async function GET(request: Request) {
@@ -100,69 +80,57 @@ export async function GET(request: Request) {
     const search = searchParams.get("search")?.trim() ?? "";
     const areaId = sessionResult.areaId;
 
-    if (search) {
-      const users = await query<AdminRegularUserRow>`
-        SELECT
-          nik_kerja,
-          area_id,
-          nama_lengkap,
-          jabatan,
-          username,
-          password,
-          is_active,
-          created_at::TEXT AS created_at,
-          updated_at::TEXT AS updated_at
-        FROM users
-        WHERE area_id = ${areaId}
-          AND user_role = 'regular'
-          AND (
-            nik_kerja ILIKE ${`%${search}%`}
-            OR nama_lengkap ILIKE ${`%${search}%`}
-            OR username ILIKE ${`%${search}%`}
-          )
-        ORDER BY is_active DESC, nama_lengkap ASC
-      `;
+    const users = search
+      ? await query<AdminRegularUserRow>`
+          SELECT
+            u.user_id::TEXT AS user_id,
+            u.nik_kerja,
+            u.area_id::TEXT AS area_id,
+            a.area_code,
+            u.nama_lengkap,
+            u.jabatan,
+            u.username,
+            u.password,
+            u.is_active,
+            u.created_at::TEXT AS created_at,
+            u.updated_at::TEXT AS updated_at
+          FROM users u
+          LEFT JOIN area a ON a.area_id = u.area_id
+          WHERE u.area_id = ${areaId}::BIGINT
+            AND u.user_role = 'regular'
+            AND (
+              u.nik_kerja ILIKE ${`%${search}%`}
+              OR u.nama_lengkap ILIKE ${`%${search}%`}
+              OR u.username ILIKE ${`%${search}%`}
+            )
+          ORDER BY u.is_active DESC, u.nama_lengkap ASC
+        `
+      : await query<AdminRegularUserRow>`
+          SELECT
+            u.user_id::TEXT AS user_id,
+            u.nik_kerja,
+            u.area_id::TEXT AS area_id,
+            a.area_code,
+            u.nama_lengkap,
+            u.jabatan,
+            u.username,
+            u.password,
+            u.is_active,
+            u.created_at::TEXT AS created_at,
+            u.updated_at::TEXT AS updated_at
+          FROM users u
+          LEFT JOIN area a ON a.area_id = u.area_id
+          WHERE u.area_id = ${areaId}::BIGINT
+            AND u.user_role = 'regular'
+          ORDER BY u.is_active DESC, u.nama_lengkap ASC
+        `;
 
-      return NextResponse.json({
-        ok: true,
-        data: users,
-      });
-    }
-
-    const users = await query<AdminRegularUserRow>`
-      SELECT
-        nik_kerja,
-        area_id,
-        nama_lengkap,
-        jabatan,
-        username,
-        password,
-        is_active,
-        created_at::TEXT AS created_at,
-        updated_at::TEXT AS updated_at
-      FROM users
-      WHERE area_id = ${areaId}
-        AND user_role = 'regular'
-      ORDER BY is_active DESC, nama_lengkap ASC
-    `;
-
-    return NextResponse.json({
-      ok: true,
-      data: users,
-    });
+    return NextResponse.json({ ok: true, data: users });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Gagal mengambil data user regular";
 
-    return NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status: 500,
-      },
-    );
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }
 
@@ -184,9 +152,7 @@ export async function POST(request: Request) {
           message: "Input user regular tidak valid",
           errors: parsed.error.flatten().fieldErrors,
         },
-        {
-          status: 400,
-        },
+        { status: 400 },
       );
     }
 
@@ -206,7 +172,7 @@ export async function POST(request: Request) {
       )
       VALUES (
         ${payload.nik_kerja},
-        ${areaId},
+        ${areaId}::BIGINT,
         ${payload.nama_lengkap},
         ${payload.jabatan},
         'regular',
@@ -215,8 +181,10 @@ export async function POST(request: Request) {
         ${payload.is_active}
       )
       RETURNING
+        user_id::TEXT AS user_id,
         nik_kerja,
-        area_id,
+        area_id::TEXT AS area_id,
+        (SELECT area_code FROM area WHERE area.area_id = users.area_id) AS area_code,
         nama_lengkap,
         jabatan,
         username,
@@ -232,49 +200,25 @@ export async function POST(request: Request) {
         message: "User regular berhasil ditambahkan",
         data: rows[0],
       },
-      {
-        status: 201,
-      },
+      { status: 201 },
     );
   } catch (error) {
     const code = getDatabaseErrorCode(error);
 
     if (code === "23505") {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "NIK kerja atau username sudah digunakan",
-        },
-        {
-          status: 409,
-        },
+        { ok: false, message: "NIK kerja atau username sudah digunakan" },
+        { status: 409 },
       );
     }
 
     if (code === "23503") {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "Area admin tidak valid",
-        },
-        {
-          status: 400,
-        },
-      );
+      return NextResponse.json({ ok: false, message: "Area admin tidak valid" }, { status: 400 });
     }
 
-    const message =
-      error instanceof Error ? error.message : "Gagal menambahkan user regular";
+    const message = error instanceof Error ? error.message : "Gagal menambahkan user regular";
 
-    return NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status: 500,
-      },
-    );
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }
 
@@ -296,9 +240,7 @@ export async function PUT(request: Request) {
           message: "Input update user regular tidak valid",
           errors: parsed.error.flatten().fieldErrors,
         },
-        {
-          status: 400,
-        },
+        { status: 400 },
       );
     }
 
@@ -308,17 +250,20 @@ export async function PUT(request: Request) {
     const rows = await query<AdminRegularUserRow>`
       UPDATE users
       SET
+        nik_kerja = ${payload.nik_kerja},
         nama_lengkap = ${payload.nama_lengkap},
         jabatan = ${payload.jabatan},
         username = ${payload.username},
         password = ${payload.password},
         is_active = ${payload.is_active}
-      WHERE nik_kerja = ${payload.nik_kerja}
-        AND area_id = ${areaId}
+      WHERE user_id = ${payload.user_id}::BIGINT
+        AND area_id = ${areaId}::BIGINT
         AND user_role = 'regular'
       RETURNING
+        user_id::TEXT AS user_id,
         nik_kerja,
-        area_id,
+        area_id::TEXT AS area_id,
+        (SELECT area_code FROM area WHERE area.area_id = users.area_id) AS area_code,
         nama_lengkap,
         jabatan,
         username,
@@ -330,13 +275,8 @@ export async function PUT(request: Request) {
 
     if (!rows[0]) {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "User regular tidak ditemukan di area admin",
-        },
-        {
-          status: 404,
-        },
+        { ok: false, message: "User regular tidak ditemukan di area admin" },
+        { status: 404 },
       );
     }
 
@@ -350,27 +290,13 @@ export async function PUT(request: Request) {
 
     if (code === "23505") {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "Username sudah digunakan",
-        },
-        {
-          status: 409,
-        },
+        { ok: false, message: "NIK kerja atau username sudah digunakan" },
+        { status: 409 },
       );
     }
 
-    const message =
-      error instanceof Error ? error.message : "Gagal memperbarui user regular";
+    const message = error instanceof Error ? error.message : "Gagal memperbarui user regular";
 
-    return NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status: 500,
-      },
-    );
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }

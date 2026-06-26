@@ -12,6 +12,7 @@ import type { ShipmentFailureReason } from "@/types/shipment";
 
 type Area = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   sla_area: number;
   spreadsheet_id: string | null;
@@ -237,7 +238,7 @@ export default function FreelancePage() {
                 </option>
                 {areas.map((area) => (
                   <option key={area.area_id} value={area.area_id}>
-                    {area.nama_area}
+                    {area.area_code} - {area.nama_area}
                   </option>
                 ))}
               </select>

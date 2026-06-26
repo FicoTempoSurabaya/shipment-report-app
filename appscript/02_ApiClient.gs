@@ -1,27 +1,19 @@
 /**
- * SETRA - Shipment Report Spreadsheet Integration
+ * SETRA - Spreadsheet Database Sync
  * File: 02_ApiClient.gs
- * Scope: koneksi HTTP ke backend web app.
+ * Scope: HTTP client ke backend.
  */
 
 function setraBuildApiUrl_(path, queryParams) {
-  const baseUrl = setraGetApiBaseUrl_();
   const cleanPath = path.charAt(0) === '/' ? path : '/' + path;
-  let url = baseUrl + cleanPath;
+  let url = setraGetApiBaseUrl_() + cleanPath;
 
   if (queryParams && Object.keys(queryParams).length > 0) {
     const query = Object.keys(queryParams)
-      .filter(function (key) {
-        return queryParams[key] !== undefined && queryParams[key] !== null && queryParams[key] !== '';
-      })
-      .map(function (key) {
-        return encodeURIComponent(key) + '=' + encodeURIComponent(String(queryParams[key]));
-      })
+      .filter(function (key) { return queryParams[key] !== undefined && queryParams[key] !== null && queryParams[key] !== ''; })
+      .map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(String(queryParams[key])); })
       .join('&');
-
-    if (query) {
-      url += '?' + query;
-    }
+    if (query) url += '?' + query;
   }
 
   return url;
@@ -37,34 +29,43 @@ function setraBuildApiHeaders_() {
   };
 }
 
+function setraBuildBasePayload_(sheetName, operation) {
+  return {
+    source: 'google_sheets',
+    operation: operation,
+    sheet_name: sheetName,
+    area_id: setraGetAreaId_(),
+    area_code: setraGetAreaCode_(),
+    spreadsheet_id: setraGetSpreadsheetId_(),
+    spreadsheet_url: setraGetSpreadsheet_().getUrl(),
+    user_email: setraGetCurrentUserEmail_(),
+  };
+}
+
+function setraGetJson_(path, queryParams) {
+  const response = UrlFetchApp.fetch(setraBuildApiUrl_(path, queryParams), {
+    method: 'get',
+    headers: setraBuildApiHeaders_(),
+    muteHttpExceptions: true,
+  });
+  return setraParseApiResponse_(response, 'GET ' + path);
+}
+
 function setraPostJson_(path, payload) {
-  const url = setraBuildApiUrl_(path);
-  const response = UrlFetchApp.fetch(url, {
+  const response = UrlFetchApp.fetch(setraBuildApiUrl_(path), {
     method: 'post',
     contentType: 'application/json',
     headers: setraBuildApiHeaders_(),
     payload: JSON.stringify(payload || {}),
     muteHttpExceptions: true,
   });
-
   return setraParseApiResponse_(response, 'POST ' + path);
-}
-
-function setraGetJson_(path, queryParams) {
-  const url = setraBuildApiUrl_(path, queryParams);
-  const response = UrlFetchApp.fetch(url, {
-    method: 'get',
-    headers: setraBuildApiHeaders_(),
-    muteHttpExceptions: true,
-  });
-
-  return setraParseApiResponse_(response, 'GET ' + path);
 }
 
 function setraParseApiResponse_(response, operationLabel) {
   const statusCode = response.getResponseCode();
   const text = response.getContentText() || '';
-  let json = null;
+  let json = {};
 
   try {
     json = text ? JSON.parse(text) : {};
@@ -73,28 +74,12 @@ function setraParseApiResponse_(response, operationLabel) {
   }
 
   if (statusCode < 200 || statusCode >= 300) {
-    const message = json.message || json.error || text || 'Unknown backend error';
-    throw new Error(operationLabel + ' gagal. HTTP ' + statusCode + ': ' + message);
+    throw new Error(operationLabel + ' gagal. HTTP ' + statusCode + ': ' + (json.message || json.error || text));
   }
 
   if (json && json.ok === false) {
-    throw new Error(operationLabel + ' gagal: ' + (json.message || json.error || 'Backend mengembalikan ok=false'));
+    throw new Error(operationLabel + ' gagal: ' + (json.message || json.error || 'Backend ok=false'));
   }
 
   return json;
-}
-
-function setraBuildBasePayload_(sheetName, operation) {
-  return {
-    source: 'google_sheets',
-    operation: operation,
-    sheet_name: sheetName,
-    area_id: setraGetAreaId_(),
-    area_name: setraGetAreaName_(),
-    spreadsheet_id: setraGetSpreadsheetId_(),
-    spreadsheet_url: setraGetSpreadsheetUrl_(),
-    executed_by: setraGetCurrentUserEmail_(),
-    executed_at: setraNowIso_(),
-    template_version: SETRA.TEMPLATE_VERSION,
-  };
 }

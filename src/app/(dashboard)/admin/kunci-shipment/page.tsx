@@ -17,6 +17,7 @@ import { toast, Toaster } from "sonner";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 
 type AdminRegularUser = {
+  user_id: string;
   nik_kerja: string;
   area_id: string;
   nama_lengkap: string;
@@ -35,6 +36,7 @@ type AdminUsersResponse = {
 type AdminShipmentLock = {
   kunci_id: string;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string | null;
   nama_lengkap: string | null;
   tanggal_awal: string;

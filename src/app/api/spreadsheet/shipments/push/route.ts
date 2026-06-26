@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { NextResponse } from "next/server";
 
 import { query } from "@/lib/db";
@@ -31,6 +29,7 @@ type SpreadsheetShipmentsPayload = {
 };
 
 type UserLookupRow = {
+  user_id: string;
   nik_kerja: string;
   nama_lengkap: string;
 };
@@ -38,6 +37,7 @@ type UserLookupRow = {
 type ShipmentDbRow = {
   shipment_id: string;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string | null;
   nama_lengkap: string | null;
   is_freelance: boolean;
@@ -69,10 +69,24 @@ const BUSINESS_HEADERS = [
 
 async function getUserByNik(params: { areaId: string; nikKerja: string }) {
   const rows = await query<UserLookupRow>`
-    SELECT nik_kerja, nama_lengkap
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
     FROM users
-    WHERE area_id = ${params.areaId}
+    WHERE area_id = ${params.areaId}::BIGINT
       AND nik_kerja = ${params.nikKerja}
+      AND user_role = 'regular'
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
+}
+
+async function getUserById(params: { areaId: string; userId: string }) {
+  const rows = await query<UserLookupRow>`
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
+    FROM users
+    WHERE area_id = ${params.areaId}::BIGINT
+      AND user_id = ${params.userId}::BIGINT
       AND user_role = 'regular'
       AND is_active = TRUE
     LIMIT 1
@@ -83,9 +97,9 @@ async function getUserByNik(params: { areaId: string; nikKerja: string }) {
 
 async function getUsersByName(params: { areaId: string; namaLengkap: string }) {
   return query<UserLookupRow>`
-    SELECT nik_kerja, nama_lengkap
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
     FROM users
-    WHERE area_id = ${params.areaId}
+    WHERE area_id = ${params.areaId}::BIGINT
       AND LOWER(nama_lengkap) = LOWER(${params.namaLengkap})
       AND user_role = 'regular'
       AND is_active = TRUE
@@ -95,9 +109,20 @@ async function getUsersByName(params: { areaId: string; namaLengkap: string }) {
 
 async function resolveRegularUser(params: {
   areaId: string;
+  userId: string | null;
   nikKerja: string | null;
   namaLengkap: string | null;
 }) {
+  if (params.userId) {
+    const user = await getUserById({ areaId: params.areaId, userId: params.userId });
+
+    if (!user) {
+      throw new Error("user_id tidak ditemukan pada users area ini");
+    }
+
+    return user;
+  }
+
   if (params.nikKerja) {
     const user = await getUserByNik({ areaId: params.areaId, nikKerja: params.nikKerja });
 
@@ -129,27 +154,26 @@ async function resolveRegularUser(params: {
   return users[0];
 }
 
-function buildShipmentRowHash(row: ShipmentDbRow) {
-  return createHash("md5")
-    .update(
-      [
-        row.shipment_id,
-        row.area_id,
-        row.nik_kerja ?? "",
-        String(row.is_freelance),
-        row.nama_freelance ?? "",
-        row.tanggal_shipment,
-        row.shipment_code,
-        row.jam_berangkat ?? "",
-        row.jam_pulang ?? "",
-        String(row.jumlah_toko),
-        String(row.terkirim),
-        String(row.gagal),
-        row.alasan ?? "",
-      ].join("|"),
-    )
-    .digest("hex");
+function buildShipmentSnapshot(row: ShipmentDbRow) {
+  const statusKerja = row.is_freelance ? "freelance" : "regular";
+
+  return [
+    row.area_id,
+    statusKerja,
+    row.nik_kerja ?? "",
+    row.is_freelance ? "" : row.nama_lengkap ?? "",
+    row.is_freelance ? row.nama_freelance ?? "" : "",
+    row.tanggal_shipment,
+    row.shipment_code,
+    row.jam_berangkat ?? "",
+    row.jam_pulang ?? "",
+    String(row.jumlah_toko),
+    String(row.terkirim),
+    String(row.gagal),
+    formatFailureReasonsForSheet(row.alasan),
+  ].join("|");
 }
+
 
 function buildSheetValues(row: ShipmentDbRow, operation: "created" | "updated") {
   const statusKerja = row.is_freelance ? "freelance" : "regular";
@@ -171,13 +195,14 @@ function buildSheetValues(row: ShipmentDbRow, operation: "created" | "updated") 
     gagal: row.gagal,
     alasan: formatFailureReasonsForSheet(row.alasan),
     __shipment_id: row.shipment_id,
+    __user_id: row.user_id ?? "",
     __is_freelance: row.is_freelance,
     __shipment_code_type: shipmentCodeType,
     __sync_action: "UPSERT",
     __sync_status: "SYNCED",
     __sync_message: operation === "created" ? "Shipment baru tersimpan" : "Shipment diperbarui",
     __last_synced_at: syncedAt,
-    __row_hash: buildShipmentRowHash(row),
+    __sync_snapshot: buildShipmentSnapshot(row),
     __operation: operation,
   };
 }
@@ -229,7 +254,7 @@ export async function POST(request: Request) {
           const deleted = await query<{ shipment_id: string }>`
             DELETE FROM shipments
             WHERE shipment_id = ${shipmentId}::BIGINT
-              AND area_id = ${auth.context.areaId}
+              AND area_id = ${auth.context.areaId}::BIGINT
             RETURNING shipment_id::TEXT AS shipment_id
           `;
 
@@ -273,6 +298,7 @@ export async function POST(request: Request) {
         if (statusKerja === "regular") {
           const user = await resolveRegularUser({
             areaId: auth.context.areaId,
+            userId: toOptionalString(row.__user_id),
             nikKerja: toOptionalString(row.nik_kerja),
             namaLengkap: toOptionalString(row.nama_lengkap),
           });
@@ -281,7 +307,7 @@ export async function POST(request: Request) {
             ? await query<ShipmentDbRow>`
                 UPDATE shipments s
                 SET
-                  nik_kerja = ${user.nik_kerja},
+                  user_id = ${user.user_id}::BIGINT,
                   is_freelance = FALSE,
                   nama_freelance = NULL,
                   tanggal_shipment = ${tanggalShipment}::DATE,
@@ -290,17 +316,17 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
+                  gagal = ${gagal},
                   alasan = ${alasanForDb},
                   updated_at = NOW()
-                FROM users u
                 WHERE s.shipment_id = ${shipmentId}::BIGINT
-                  AND s.area_id = ${auth.context.areaId}
-                  AND u.nik_kerja = ${user.nik_kerja}
+                  AND s.area_id = ${auth.context.areaId}::BIGINT
                 RETURNING
                   s.shipment_id::TEXT AS shipment_id,
-                  s.area_id,
-                  s.nik_kerja,
-                  u.nama_lengkap,
+                  s.area_id::TEXT AS area_id,
+                  s.user_id::TEXT AS user_id,
+                  ${user.nik_kerja}::TEXT AS nik_kerja,
+                  ${user.nama_lengkap}::TEXT AS nama_lengkap,
                   s.is_freelance,
                   s.nama_freelance,
                   s.tanggal_shipment::TEXT AS tanggal_shipment,
@@ -316,7 +342,7 @@ export async function POST(request: Request) {
             : await query<ShipmentDbRow>`
                 INSERT INTO shipments (
                   area_id,
-                  nik_kerja,
+                  user_id,
                   is_freelance,
                   nama_freelance,
                   tanggal_shipment,
@@ -325,11 +351,12 @@ export async function POST(request: Request) {
                   jam_pulang,
                   jumlah_toko,
                   terkirim,
+                  gagal,
                   alasan
                 )
                 VALUES (
-                  ${auth.context.areaId},
-                  ${user.nik_kerja},
+                  ${auth.context.areaId}::BIGINT,
+                  ${user.user_id}::BIGINT,
                   FALSE,
                   NULL,
                   ${tanggalShipment}::DATE,
@@ -338,12 +365,14 @@ export async function POST(request: Request) {
                   ${jamPulang}::TIME,
                   ${jumlahToko},
                   ${terkirim},
+                  ${gagal},
                   ${alasanForDb}
                 )
                 RETURNING
                   shipment_id::TEXT AS shipment_id,
-                  area_id,
-                  nik_kerja,
+                  area_id::TEXT AS area_id,
+                  user_id::TEXT AS user_id,
+                  ${user.nik_kerja}::TEXT AS nik_kerja,
                   ${user.nama_lengkap}::TEXT AS nama_lengkap,
                   is_freelance,
                   nama_freelance,
@@ -364,7 +393,7 @@ export async function POST(request: Request) {
             ? await query<ShipmentDbRow>`
                 UPDATE shipments
                 SET
-                  nik_kerja = NULL,
+                  user_id = NULL,
                   is_freelance = TRUE,
                   nama_freelance = ${namaFreelance},
                   tanggal_shipment = ${tanggalShipment}::DATE,
@@ -373,14 +402,16 @@ export async function POST(request: Request) {
                   jam_pulang = ${jamPulang}::TIME,
                   jumlah_toko = ${jumlahToko},
                   terkirim = ${terkirim},
+                  gagal = ${gagal},
                   alasan = ${alasanForDb},
                   updated_at = NOW()
                 WHERE shipment_id = ${shipmentId}::BIGINT
-                  AND area_id = ${auth.context.areaId}
+                  AND area_id = ${auth.context.areaId}::BIGINT
                 RETURNING
                   shipment_id::TEXT AS shipment_id,
-                  area_id,
-                  nik_kerja,
+                  area_id::TEXT AS area_id,
+                  user_id::TEXT AS user_id,
+                  NULL::TEXT AS nik_kerja,
                   NULL::TEXT AS nama_lengkap,
                   is_freelance,
                   nama_freelance,
@@ -397,7 +428,7 @@ export async function POST(request: Request) {
             : await query<ShipmentDbRow>`
                 INSERT INTO shipments (
                   area_id,
-                  nik_kerja,
+                  user_id,
                   is_freelance,
                   nama_freelance,
                   tanggal_shipment,
@@ -406,10 +437,11 @@ export async function POST(request: Request) {
                   jam_pulang,
                   jumlah_toko,
                   terkirim,
+                  gagal,
                   alasan
                 )
                 VALUES (
-                  ${auth.context.areaId},
+                  ${auth.context.areaId}::BIGINT,
                   NULL,
                   TRUE,
                   ${namaFreelance},
@@ -419,12 +451,14 @@ export async function POST(request: Request) {
                   ${jamPulang}::TIME,
                   ${jumlahToko},
                   ${terkirim},
+                  ${gagal},
                   ${alasanForDb}
                 )
                 RETURNING
                   shipment_id::TEXT AS shipment_id,
-                  area_id,
-                  nik_kerja,
+                  area_id::TEXT AS area_id,
+                  user_id::TEXT AS user_id,
+                  NULL::TEXT AS nik_kerja,
                   NULL::TEXT AS nama_lengkap,
                   is_freelance,
                   nama_freelance,

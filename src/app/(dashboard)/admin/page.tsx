@@ -24,14 +24,17 @@ type StatusMetric = {
 
 type AdminDashboardData = {
   admin: {
+    user_id: string;
     nik_kerja: string;
     area_id: string;
+    area_code: string | null;
     nama_lengkap: string;
     username: string;
     user_role: "admin";
   };
   area: {
     area_id: string;
+    area_code: string;
     nama_area: string;
     sla_area: number;
   };

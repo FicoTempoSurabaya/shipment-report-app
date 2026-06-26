@@ -46,6 +46,7 @@ function parseAppsScriptJson(text: string): AppsScriptConnectResponse {
 export async function createAreaSpreadsheetViaAppsScript(params: {
   area_id: string;
   area_name: string;
+  area_code?: string | null;
   area_timezone?: string | null;
 }): Promise<AppsScriptSpreadsheetResult> {
   const webAppUrl = requireEnv("GOOGLE_APPS_SCRIPT_CONNECT_URL");
@@ -66,6 +67,7 @@ export async function createAreaSpreadsheetViaAppsScript(params: {
       webhook_secret: webhookSecret,
       area_id: params.area_id,
       area_name: params.area_name,
+      area_code: params.area_code ?? "",
       spreadsheet_name: spreadsheetName,
       template_spreadsheet_id: templateSpreadsheetId,
       output_folder_id: optionalEnv("GOOGLE_DRIVE_FOLDER_ID"),

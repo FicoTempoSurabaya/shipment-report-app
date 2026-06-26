@@ -12,16 +12,20 @@ import {
   makeResult,
   toBoolean,
   toNonNegativeInteger,
+  toOptionalString,
   toRequiredString,
   type SpreadsheetRow,
 } from "@/lib/spreadsheet-sync";
 
+// Area sheet masih boleh memakai header lama area_id sebagai kode area.
+// Backend akan menyimpan kode tersebut ke area.area_code, sementara area.area_id tetap bigserial.
 type SpreadsheetAreaPayload = {
   rows?: SpreadsheetRow[];
 };
 
 type AreaRow = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   sla_area: number;
   area_timezone: string;
@@ -34,7 +38,7 @@ const ALLOWED_AREA_TIMEZONES = new Set([
   "Asia/Jayapura",
 ]);
 
-const BUSINESS_HEADERS = ["area_id", "nama_area", "sla_area", "area_timezone", "is_active"];
+const BUSINESS_HEADERS = ["area_code", "area_id", "nama_area", "sla_area", "area_timezone", "is_active"];
 
 function toAreaTimezone(value: unknown): string {
   const text = String(value ?? "").trim();
@@ -48,6 +52,25 @@ function toAreaTimezone(value: unknown): string {
   }
 
   return text;
+}
+
+function isNumericId(value: string | null): value is string {
+  return Boolean(value && /^\d+$/.test(value));
+}
+
+async function findArea(params: { areaId: string | null; areaCode: string }) {
+  const rows = await query<{ area_id: string }>`
+    SELECT area_id::TEXT AS area_id
+    FROM area
+    WHERE (
+      ${isNumericId(params.areaId) ? params.areaId : null}::BIGINT IS NOT NULL
+      AND area_id = ${isNumericId(params.areaId) ? params.areaId : null}::BIGINT
+    )
+      OR lower(area_code) = lower(${params.areaCode})
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
 }
 
 export async function POST(request: Request) {
@@ -74,7 +97,13 @@ export async function POST(request: Request) {
         }
 
         const action = getSyncAction(row);
-        const areaId = toRequiredString(row.area_id, "area_id");
+        const areaId = toOptionalString(row.area_id);
+        const legacyAreaCode = areaId && !isNumericId(areaId) ? areaId : null;
+        const areaCode = toOptionalString(row.area_code) ?? legacyAreaCode;
+
+        if (!areaCode) {
+          throw new Error("area_code wajib diisi. area_id sekarang adalah ID internal database.");
+        }
 
         if (action === SYNC_ACTION.SKIP) {
           results.push(
@@ -84,16 +113,18 @@ export async function POST(request: Request) {
         }
 
         if (action === SYNC_ACTION.DELETE) {
+          const existing = await findArea({ areaId, areaCode });
+
+          if (!existing) {
+            throw new Error("Area tidak ditemukan");
+          }
+
           const updated = await query<AreaRow>`
             UPDATE area
             SET is_active = FALSE
-            WHERE area_id = ${areaId}
-            RETURNING area_id, nama_area, sla_area, area_timezone, is_active
+            WHERE area_id = ${existing.area_id}::BIGINT
+            RETURNING area_id::TEXT AS area_id, area_code, nama_area, sla_area, area_timezone, is_active
           `;
-
-          if (!updated[0]) {
-            throw new Error("Area tidak ditemukan");
-          }
 
           results.push(
             makeResult({
@@ -116,18 +147,25 @@ export async function POST(request: Request) {
         const slaArea = toNonNegativeInteger(row.sla_area, "sla_area");
         const areaTimezone = toAreaTimezone(row.area_timezone);
         const isActive = toBoolean(row.is_active, true);
+        const existing = await findArea({ areaId, areaCode });
 
-        const saved = await query<AreaRow>`
-          INSERT INTO area (area_id, nama_area, sla_area, area_timezone, is_active)
-          VALUES (${areaId}, ${namaArea}, ${slaArea}, ${areaTimezone}, ${isActive})
-          ON CONFLICT (area_id)
-          DO UPDATE SET
-            nama_area = EXCLUDED.nama_area,
-            sla_area = EXCLUDED.sla_area,
-            area_timezone = EXCLUDED.area_timezone,
-            is_active = EXCLUDED.is_active
-          RETURNING area_id, nama_area, sla_area, area_timezone, is_active
-        `;
+        const saved = existing
+          ? await query<AreaRow>`
+              UPDATE area
+              SET
+                area_code = ${areaCode},
+                nama_area = ${namaArea},
+                sla_area = ${slaArea},
+                area_timezone = ${areaTimezone},
+                is_active = ${isActive}
+              WHERE area_id = ${existing.area_id}::BIGINT
+              RETURNING area_id::TEXT AS area_id, area_code, nama_area, sla_area, area_timezone, is_active
+            `
+          : await query<AreaRow>`
+              INSERT INTO area (area_code, nama_area, sla_area, area_timezone, is_active)
+              VALUES (${areaCode}, ${namaArea}, ${slaArea}, ${areaTimezone}, ${isActive})
+              RETURNING area_id::TEXT AS area_id, area_code, nama_area, sla_area, area_timezone, is_active
+            `;
 
         results.push(
           makeResult({
@@ -146,7 +184,7 @@ export async function POST(request: Request) {
       } catch (error) {
         const code = getDatabaseErrorCode(error);
         const message =
-          code === "23503" || code === "23514"
+          code === "23503" || code === "23514" || code === "23505"
             ? "Data area melanggar aturan database"
             : error instanceof Error
               ? error.message

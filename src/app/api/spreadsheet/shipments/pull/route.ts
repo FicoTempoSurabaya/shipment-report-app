@@ -7,6 +7,7 @@ import { formatFailureReasonsForSheet } from "@/lib/spreadsheet-sync";
 type ShipmentPullDbRow = {
   shipment_id: string;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string | null;
   nama_lengkap: string | null;
   is_freelance: boolean;
@@ -19,7 +20,7 @@ type ShipmentPullDbRow = {
   terkirim: number;
   gagal: number;
   alasan: string | null;
-  __row_hash: string;
+  __sync_snapshot: string;
   __updated_at: string;
 };
 
@@ -68,8 +69,9 @@ export async function GET(request: Request) {
     const rows = await query<ShipmentPullDbRow>`
       SELECT
         s.shipment_id::TEXT AS shipment_id,
-        s.area_id,
-        s.nik_kerja,
+        s.area_id::TEXT AS area_id,
+        s.user_id::TEXT AS user_id,
+        u.nik_kerja,
         u.nama_lengkap,
         s.is_freelance,
         s.nama_freelance,
@@ -81,12 +83,12 @@ export async function GET(request: Request) {
         s.terkirim,
         s.gagal,
         COALESCE(s.alasan, '') AS alasan,
-        MD5(CONCAT_WS('|',
-          s.shipment_id::TEXT,
-          s.area_id,
-          COALESCE(s.nik_kerja, ''),
-          s.is_freelance::TEXT,
-          COALESCE(s.nama_freelance, ''),
+        CONCAT_WS('|',
+          s.area_id::TEXT,
+          CASE WHEN s.is_freelance THEN 'freelance' ELSE 'regular' END,
+          COALESCE(u.nik_kerja, ''),
+          CASE WHEN s.is_freelance THEN '' ELSE COALESCE(u.nama_lengkap, '') END,
+          CASE WHEN s.is_freelance THEN COALESCE(s.nama_freelance, '') ELSE '' END,
           s.tanggal_shipment::TEXT,
           s.shipment_code,
           COALESCE(s.jam_berangkat::TEXT, ''),
@@ -95,13 +97,11 @@ export async function GET(request: Request) {
           s.terkirim::TEXT,
           s.gagal::TEXT,
           COALESCE(s.alasan, '')
-        )) AS __row_hash,
+        ) AS __sync_snapshot,
         s.updated_at::TEXT AS __updated_at
       FROM shipments s
-      LEFT JOIN users u
-        ON u.nik_kerja = s.nik_kerja
-        AND u.area_id = s.area_id
-      WHERE s.area_id = ${auth.context.areaId}
+      LEFT JOIN users u ON u.user_id = s.user_id
+      WHERE s.area_id = ${auth.context.areaId}::BIGINT
         AND (
           NULLIF(${updatedAfter}, '')::TIMESTAMPTZ IS NULL
           OR s.updated_at > NULLIF(${updatedAfter}, '')::TIMESTAMPTZ
@@ -137,13 +137,14 @@ export async function GET(request: Request) {
         gagal: row.gagal,
         alasan: formatFailureReasonsForSheet(row.alasan),
         __shipment_id: row.shipment_id,
+        __user_id: row.user_id ?? "",
         __is_freelance: row.is_freelance,
         __shipment_code_type: shipmentCodeType,
         __sync_action: "UPSERT",
         __sync_status: "SYNCED",
         __sync_message: "Data dari database",
         __last_synced_at: fetchedAt,
-        __row_hash: row.__row_hash,
+        __sync_snapshot: row.__sync_snapshot,
       };
     });
 

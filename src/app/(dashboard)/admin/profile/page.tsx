@@ -20,8 +20,10 @@ import { DashboardShell } from "@/components/layout/DashboardShell";
 import { USER_JABATAN, type UserJabatan } from "@/types/user";
 
 type AdminProfile = {
+  user_id: string;
   nik_kerja: string;
   area_id: string | null;
+  area_code: string | null;
   nama_area: string | null;
   nama_lengkap: string;
   username: string;
@@ -29,8 +31,10 @@ type AdminProfile = {
 };
 
 type AdminRegularUser = {
+  user_id: string;
   nik_kerja: string;
   area_id: string;
+  area_code: string | null;
   nama_lengkap: string;
   jabatan: UserJabatan;
   username: string;
@@ -40,6 +44,7 @@ type AdminRegularUser = {
 
 type SpreadsheetData = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   spreadsheet_id: string | null;
   spreadsheet_url: string | null;
@@ -76,7 +81,7 @@ export default function AdminProfilePage() {
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [spreadsheet, setSpreadsheet] = useState<SpreadsheetData | null>(null);
   const [users, setUsers] = useState<AdminRegularUser[]>([]);
-  const [selectedUserNik, setSelectedUserNik] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const [profileUsername, setProfileUsername] = useState("");
   const [profilePassword, setProfilePassword] = useState("");
@@ -92,7 +97,7 @@ export default function AdminProfilePage() {
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSavingUser, setIsSavingUser] = useState(false);
 
-  const isEditingUser = Boolean(selectedUserNik);
+  const isEditingUser = Boolean(selectedUserId);
 
   const isProfileSubmitDisabled = useMemo(() => {
     return (
@@ -200,13 +205,13 @@ export default function AdminProfilePage() {
   }, [loadAll]);
 
   function openNewUserModal() {
-    setSelectedUserNik(null);
+    setSelectedUserId(null);
     setUserForm(emptyUserForm);
     setIsUserModalOpen(true);
   }
 
   function openEditUserModal(user: AdminRegularUser) {
-    setSelectedUserNik(user.nik_kerja);
+    setSelectedUserId(user.user_id);
     setUserForm({
       nik_kerja: user.nik_kerja,
       nama_lengkap: user.nama_lengkap,
@@ -220,7 +225,7 @@ export default function AdminProfilePage() {
 
   function closeUserModal() {
     setIsUserModalOpen(false);
-    setSelectedUserNik(null);
+    setSelectedUserId(null);
     setUserForm(emptyUserForm);
   }
 
@@ -317,6 +322,7 @@ export default function AdminProfilePage() {
         },
         credentials: "include",
         body: JSON.stringify({
+          ...(isEditingUser && selectedUserId ? { user_id: selectedUserId } : {}),
           nik_kerja: userForm.nik_kerja.trim(),
           nama_lengkap: userForm.nama_lengkap.trim(),
           jabatan: userForm.jabatan,
@@ -547,10 +553,10 @@ export default function AdminProfilePage() {
             <div className="space-y-3">
               {users.map((user) => (
                 <button
-                  key={user.nik_kerja}
+                  key={user.user_id}
                   className={[
                     "flex w-full items-center justify-between gap-4 border-2 p-4 text-left transition",
-                    selectedUserNik === user.nik_kerja
+                    selectedUserId === user.user_id
                       ? "border-[var(--primary-dark)] bg-[var(--primary-soft)]"
                       : "border-[var(--border-soft)] bg-[var(--surface-soft)] hover:border-[var(--primary)]",
                   ].join(" ")}

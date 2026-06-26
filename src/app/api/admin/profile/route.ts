@@ -5,8 +5,10 @@ import { query } from "@/lib/db";
 import { updateProfileSchema } from "@/lib/validation";
 
 type AdminProfileRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string | null;
+  area_code: string | null;
   nama_area: string | null;
   nama_lengkap: string;
   username: string;
@@ -32,15 +34,7 @@ async function validateAdminSession() {
   if (!session) {
     return {
       ok: false as const,
-      response: NextResponse.json(
-        {
-          ok: false,
-          message: "Belum login",
-        },
-        {
-          status: 401,
-        },
-      ),
+      response: NextResponse.json({ ok: false, message: "Belum login" }, { status: 401 }),
     };
   }
 
@@ -48,21 +42,13 @@ async function validateAdminSession() {
     return {
       ok: false as const,
       response: NextResponse.json(
-        {
-          ok: false,
-          message: "Endpoint profile ini hanya untuk user admin",
-        },
-        {
-          status: 403,
-        },
+        { ok: false, message: "Endpoint profile ini hanya untuk user admin" },
+        { status: 403 },
       ),
     };
   }
 
-  return {
-    ok: true as const,
-    session,
-  };
+  return { ok: true as const, session };
 }
 
 export async function GET() {
@@ -75,15 +61,17 @@ export async function GET() {
 
     const rows = await query<AdminProfileRow>`
       SELECT
+        u.user_id::TEXT AS user_id,
         u.nik_kerja,
-        u.area_id,
+        u.area_id::TEXT AS area_id,
+        a.area_code,
         a.nama_area,
         u.nama_lengkap,
         u.username,
         u.password
       FROM users u
       LEFT JOIN area a ON a.area_id = u.area_id
-      WHERE u.nik_kerja = ${sessionResult.session.nik_kerja}
+      WHERE u.user_id = ${sessionResult.session.user_id}::BIGINT
         AND u.user_role = 'admin'
         AND u.is_active = TRUE
       LIMIT 1
@@ -93,33 +81,16 @@ export async function GET() {
 
     if (!profile) {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "Profile admin tidak ditemukan",
-        },
-        {
-          status: 404,
-        },
+        { ok: false, message: "Profile admin tidak ditemukan" },
+        { status: 404 },
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      data: profile,
-    });
+    return NextResponse.json({ ok: true, data: profile });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Gagal mengambil profile admin";
+    const message = error instanceof Error ? error.message : "Gagal mengambil profile admin";
 
-    return NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status: 500,
-      },
-    );
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }
 
@@ -141,9 +112,7 @@ export async function PUT(request: Request) {
           message: "Input profile admin tidak valid",
           errors: parsed.error.flatten().fieldErrors,
         },
-        {
-          status: 400,
-        },
+        { status: 400 },
       );
     }
 
@@ -153,10 +122,11 @@ export async function PUT(request: Request) {
         SET
           username = ${parsed.data.username},
           password = ${parsed.data.password}
-        WHERE nik_kerja = ${sessionResult.session.nik_kerja}
+        WHERE user_id = ${sessionResult.session.user_id}::BIGINT
           AND user_role = 'admin'
           AND is_active = TRUE
         RETURNING
+          user_id,
           nik_kerja,
           area_id,
           nama_lengkap,
@@ -164,8 +134,10 @@ export async function PUT(request: Request) {
           password
       )
       SELECT
+        u.user_id::TEXT AS user_id,
         u.nik_kerja,
-        u.area_id,
+        u.area_id::TEXT AS area_id,
+        a.area_code,
         a.nama_area,
         u.nama_lengkap,
         u.username,
@@ -179,19 +151,16 @@ export async function PUT(request: Request) {
 
     if (!updatedProfile) {
       return NextResponse.json(
-        {
-          ok: false,
-          message: "Profile admin tidak ditemukan",
-        },
-        {
-          status: 404,
-        },
+        { ok: false, message: "Profile admin tidak ditemukan" },
+        { status: 404 },
       );
     }
 
     await setSessionCookie({
+      user_id: updatedProfile.user_id,
       nik_kerja: updatedProfile.nik_kerja,
       area_id: updatedProfile.area_id,
+      area_code: updatedProfile.area_code,
       nama_lengkap: updatedProfile.nama_lengkap,
       username: updatedProfile.username,
       user_role: "admin",
@@ -206,28 +175,11 @@ export async function PUT(request: Request) {
     const code = getDatabaseErrorCode(error);
 
     if (code === "23505") {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "Username sudah digunakan",
-        },
-        {
-          status: 409,
-        },
-      );
+      return NextResponse.json({ ok: false, message: "Username sudah digunakan" }, { status: 409 });
     }
 
-    const message =
-      error instanceof Error ? error.message : "Gagal memperbarui profile admin";
+    const message = error instanceof Error ? error.message : "Gagal memperbarui profile admin";
 
-    return NextResponse.json(
-      {
-        ok: false,
-        message,
-      },
-      {
-        status: 500,
-      },
-    );
+    return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }

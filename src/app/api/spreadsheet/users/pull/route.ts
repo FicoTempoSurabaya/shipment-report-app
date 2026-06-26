@@ -5,8 +5,10 @@ import { query } from "@/lib/db";
 import type { UserJabatan } from "@/types/user";
 
 type SpreadsheetUserPullRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string;
+  area_code: string;
   nama_lengkap: string;
   jabatan: UserJabatan;
   username: string;
@@ -18,7 +20,7 @@ type SpreadsheetUserPullRow = {
   __sync_status: string;
   __sync_message: string;
   __last_synced_at: string;
-  __row_hash: string;
+  __sync_snapshot: string;
 };
 
 export async function GET(request: Request) {
@@ -31,24 +33,27 @@ export async function GET(request: Request) {
   try {
     const rows = await query<SpreadsheetUserPullRow>`
       SELECT
-        nik_kerja,
-        area_id,
-        nama_lengkap,
-        jabatan,
-        username,
+        u.user_id::TEXT AS user_id,
+        u.nik_kerja,
+        u.area_id::TEXT AS area_id,
+        a.area_code,
+        u.nama_lengkap,
+        u.jabatan,
+        u.username,
         ''::TEXT AS password,
-        is_active,
-        nik_kerja AS __original_nik_kerja,
+        u.is_active,
+        u.nik_kerja AS __original_nik_kerja,
         'regular'::TEXT AS __user_role,
         'UPSERT'::TEXT AS __sync_action,
         'SYNCED'::TEXT AS __sync_status,
         'Data dari database'::TEXT AS __sync_message,
         NOW()::TEXT AS __last_synced_at,
-        MD5(CONCAT_WS('|', nik_kerja, area_id, nama_lengkap, jabatan, username, is_active::TEXT)) AS __row_hash
-      FROM users
-      WHERE area_id = ${auth.context.areaId}
-        AND user_role = 'regular'
-      ORDER BY is_active DESC, nama_lengkap ASC, nik_kerja ASC
+        CONCAT_WS('|', u.nik_kerja, u.area_id::TEXT, a.area_code, u.nama_lengkap, u.jabatan, u.username, '', u.is_active::TEXT) AS __sync_snapshot
+      FROM users u
+      LEFT JOIN area a ON a.area_id = u.area_id
+      WHERE u.area_id = ${auth.context.areaId}::BIGINT
+        AND u.user_role = 'regular'
+      ORDER BY u.is_active DESC, u.nama_lengkap ASC, u.nik_kerja ASC
     `;
 
     return NextResponse.json({

@@ -7,11 +7,13 @@ export async function GET() {
   try {
     const areas = await query<Area>`
       SELECT
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         sla_area,
         spreadsheet_id,
         spreadsheet_url,
+        area_timezone,
         is_active
       FROM area
       WHERE is_active = TRUE

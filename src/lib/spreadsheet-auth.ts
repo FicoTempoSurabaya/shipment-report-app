@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 
 type AreaSpreadsheetRow = {
   area_id: string;
+  area_code: string;
   spreadsheet_id: string | null;
   spreadsheet_url: string | null;
   is_active: boolean;
@@ -11,6 +12,7 @@ type AreaSpreadsheetRow = {
 
 export type SpreadsheetAuthContext = {
   areaId: string;
+  areaCode: string;
   spreadsheetId: string;
   spreadsheetUrl: string | null;
   userEmail: string;
@@ -117,14 +119,20 @@ export async function validateSpreadsheetRequest(
       };
     }
 
+    const isNumericAreaId = /^\d+$/.test(areaId);
     const rows = await query<AreaSpreadsheetRow>`
       SELECT
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         spreadsheet_id,
         spreadsheet_url,
         is_active
       FROM area
-      WHERE area_id = ${areaId}
+      WHERE (
+          ${isNumericAreaId ? areaId : null}::BIGINT IS NOT NULL
+          AND area_id = ${isNumericAreaId ? areaId : null}::BIGINT
+        )
+        OR lower(area_code) = lower(${areaId})
       LIMIT 1
     `;
 
@@ -193,7 +201,8 @@ export async function validateSpreadsheetRequest(
     return {
       ok: true,
       context: {
-        areaId,
+        areaId: area.area_id,
+        areaCode: area.area_code,
         spreadsheetId,
         spreadsheetUrl: area.spreadsheet_url,
         userEmail,

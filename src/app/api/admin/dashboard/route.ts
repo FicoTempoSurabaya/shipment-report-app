@@ -8,6 +8,7 @@ import { SHIPMENT_STATUS, type ShipmentStatus } from "@/types/shipment";
 
 type AreaRow = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   sla_area: number;
 };
@@ -137,11 +138,12 @@ export async function GET(request: Request) {
 
     const areaRows = await query<AreaRow>`
       SELECT
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         sla_area
       FROM area
-      WHERE area_id = ${session.area_id}
+      WHERE area_id = ${session.area_id}::BIGINT
         AND is_active = TRUE
       LIMIT 1
     `;
@@ -174,7 +176,7 @@ export async function GET(request: Request) {
         tanggal_shipment::TEXT AS tanggal_shipment,
         COUNT(*)::INT AS jumlah_shipment
       FROM shipments
-      WHERE area_id = ${session.area_id}
+      WHERE area_id = ${session.area_id}::BIGINT
         AND tanggal_shipment BETWEEN ${startDate}::DATE AND ${endDate}::DATE
       GROUP BY tanggal_shipment
       ORDER BY tanggal_shipment ASC
@@ -184,7 +186,7 @@ export async function GET(request: Request) {
       SELECT
         COUNT(DISTINCT tanggal_shipment)::INT AS hke
       FROM shipments
-      WHERE area_id = ${session.area_id}
+      WHERE area_id = ${session.area_id}::BIGINT
         AND tanggal_shipment BETWEEN ${startDate}::DATE AND ${endDate}::DATE
         AND shipment_code ~ '^[0-9]{10}$'
     `;
@@ -194,7 +196,7 @@ export async function GET(request: Request) {
         shipment_code AS status_shipment,
         COUNT(DISTINCT tanggal_shipment)::INT AS total
       FROM shipments
-      WHERE area_id = ${session.area_id}
+      WHERE area_id = ${session.area_id}::BIGINT
         AND tanggal_shipment BETWEEN ${startDate}::DATE AND ${endDate}::DATE
         AND shipment_code IS NOT NULL
         AND shipment_code !~ '^[0-9]{10}$'
@@ -221,8 +223,10 @@ export async function GET(request: Request) {
       ok: true,
       data: {
         admin: {
+          user_id: session.user_id,
           nik_kerja: session.nik_kerja,
           area_id: session.area_id,
+          area_code: session.area_code,
           nama_lengkap: session.nama_lengkap,
           username: session.username,
           user_role: session.user_role,

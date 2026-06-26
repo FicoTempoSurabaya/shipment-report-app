@@ -39,6 +39,7 @@ function doPost(e) {
 
     const areaId = requirePayloadString_(payload, 'area_id');
     const areaName = requirePayloadString_(payload, 'area_name');
+    const areaCode = String(payload.area_code || '').trim();
     const spreadsheetName =
       String(payload.spreadsheet_name || '').trim() ||
       'SHIPMENT_APP_' + areaName.toUpperCase();
@@ -56,6 +57,7 @@ function doPost(e) {
 
     updateSetraConfig_(spreadsheet, {
       AREA_ID: areaId,
+      AREA_CODE: areaCode,
       AREA_NAME: areaName,
       TIMEZONE: timezone,
       API_BASE_URL: String(payload.api_base_url || '').trim(),
@@ -238,10 +240,10 @@ function findConfigHeader_(values) {
 
 function applySetraInitialVisibility_(spreadsheet) {
   hideSheetIfExists_(spreadsheet, '_config');
-  hideSheetIfExists_(spreadsheet, '_dropdowns');
   hideSheetIfExists_(spreadsheet, '_sync_log');
 
   hideColumnsByHeader_(spreadsheet, 'users', [
+    'user_id',
     'area_id',
     '__original_nik_kerja',
     '__user_role',
@@ -249,23 +251,25 @@ function applySetraInitialVisibility_(spreadsheet) {
     '__sync_status',
     '__sync_message',
     '__last_synced_at',
-    '__row_hash',
+    '__sync_snapshot',
   ]);
 
   hideColumnsByHeader_(spreadsheet, 'kunci_shipment', [
     'area_id',
     '__kunci_id',
+    '__user_id',
     '__nik_kerja',
     '__sync_action',
     '__sync_status',
     '__sync_message',
     '__last_synced_at',
-    '__row_hash',
+    '__sync_snapshot',
   ]);
 
   hideColumnsByHeader_(spreadsheet, 'shipments', [
     'area_id',
     '__shipment_id',
+    '__user_id',
     '__nik_kerja',
     '__is_freelance',
     '__shipment_code_type',
@@ -273,7 +277,7 @@ function applySetraInitialVisibility_(spreadsheet) {
     '__sync_status',
     '__sync_message',
     '__last_synced_at',
-    '__row_hash',
+    '__sync_snapshot',
   ]);
 }
 

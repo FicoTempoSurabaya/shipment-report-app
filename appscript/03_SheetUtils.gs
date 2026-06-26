@@ -1,12 +1,11 @@
 /**
- * SETRA - Shipment Report Spreadsheet Integration
+ * SETRA - Spreadsheet Database Sync
  * File: 03_SheetUtils.gs
- * Scope: helper baca/tulis sheet, header map, format, status sync.
+ * Scope: helper sheet, snapshot, proteksi, log, dan dialog.
  */
 
 function setraGetHeaders_(sheet) {
-  const lastColumn = sheet.getLastColumn();
-  if (lastColumn < 1) return [];
+  const lastColumn = Math.max(sheet.getLastColumn(), 1);
   return sheet.getRange(SETRA.HEADER_ROW, 1, 1, lastColumn).getValues()[0].map(function (header) {
     return setraNormalizeText_(header);
   });
@@ -16,339 +15,275 @@ function setraGetHeaderMap_(sheet) {
   const headers = setraGetHeaders_(sheet);
   const map = {};
   headers.forEach(function (header, index) {
-    if (header) {
-      map[header] = index + 1;
-    }
+    if (header) map[header] = index + 1;
   });
   return map;
 }
 
 function setraAssertHeaders_(sheet, requiredHeaders) {
   const map = setraGetHeaderMap_(sheet);
-  const missing = requiredHeaders.filter(function (header) {
-    return !map[header];
-  });
-
-  if (missing.length > 0) {
-    throw new Error('Header wajib belum ada di sheet ' + sheet.getName() + ': ' + missing.join(', '));
-  }
+  const missing = requiredHeaders.filter(function (header) { return !map[header]; });
+  if (missing.length > 0) throw new Error('Sheet ' + sheet.getName() + ' kurang header: ' + missing.join(', '));
+  return map;
 }
 
 function setraGetLastDataRow_(sheet) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < SETRA.DATA_START_ROW) return SETRA.HEADER_ROW;
-  return lastRow;
+  return sheet.getLastRow();
 }
 
-function setraReadRowsAsObjects_(sheetName, businessHeaders) {
+function setraIsBlankBusinessRow_(rowObject, businessHeaders) {
+  return businessHeaders.every(function (header) {
+    return !setraNormalizeText_(rowObject[header]);
+  });
+}
+
+function setraNormalizeForSnapshot_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
+  }
+  if (value === true) return 'TRUE';
+  if (value === false) return 'FALSE';
+  if (value === null || value === undefined) return '';
+  return String(value).trim().replace(/\s+/g, ' ');
+}
+
+function setraBuildSnapshot_(rowObject, businessHeaders) {
+  return businessHeaders.map(function (header) {
+    return setraNormalizeForSnapshot_(rowObject[header]);
+  }).join('|');
+}
+
+function setraBuildSnapshotFromRowValues_(headers, rowValues, businessHeaders) {
+  const obj = {};
+  headers.forEach(function (header, index) {
+    if (header) obj[header] = rowValues[index];
+  });
+  return setraBuildSnapshot_(obj, businessHeaders);
+}
+
+function setraReadRowsAsObjects_(sheetName, businessHeaders, options) {
+  options = options || {};
   const sheet = setraGetSheet_(sheetName);
   const headers = setraGetHeaders_(sheet);
   const lastRow = setraGetLastDataRow_(sheet);
-
-  if (lastRow < SETRA.DATA_START_ROW) {
-    return [];
-  }
+  if (lastRow < SETRA.DATA_START_ROW) return [];
 
   const rowCount = lastRow - SETRA.DATA_START_ROW + 1;
   const values = sheet.getRange(SETRA.DATA_START_ROW, 1, rowCount, headers.length).getValues();
   const rows = [];
 
-  for (let i = 0; i < values.length; i++) {
-    const rowNumber = SETRA.DATA_START_ROW + i;
-    const rawValues = values[i];
-
-    if (setraIsBlankBusinessRow_(headers, rawValues, businessHeaders)) {
-      continue;
-    }
-
+  values.forEach(function (rowValues, index) {
+    const rowNumber = SETRA.DATA_START_ROW + index;
     const obj = { __row_number: rowNumber };
-    for (let c = 0; c < headers.length; c++) {
-      const header = headers[c];
-      if (!header) continue;
-      obj[header] = setraNormalizeCellValueForPayload_(rawValues[c], header);
-    }
-    rows.push(obj);
-  }
+    headers.forEach(function (header, colIndex) {
+      if (!header) return;
+      obj[header] = rowValues[colIndex];
+    });
 
+    if (options.pendingOnly) {
+      const action = setraNormalizeText_(obj.__sync_action).toUpperCase();
+      const status = setraNormalizeText_(obj.__sync_status).toUpperCase();
+      const validAction = action === SETRA.SYNC_ACTION.UPSERT || action === SETRA.SYNC_ACTION.DELETE;
+      const validStatus = status === SETRA.SYNC_STATUS.PENDING || status === SETRA.SYNC_STATUS.ERROR;
+      if (!validAction || !validStatus) return;
+    }
+
+    if (options.excludeDelete && setraNormalizeText_(obj.__sync_action).toUpperCase() === SETRA.SYNC_ACTION.DELETE) return;
+    if (businessHeaders && setraIsBlankBusinessRow_(obj, businessHeaders)) return;
+    rows.push(obj);
+  });
+
+  if (options.limit && rows.length > options.limit) return rows.slice(0, options.limit);
   return rows;
 }
 
-function setraIsBlankBusinessRow_(headers, rowValues, businessHeaders) {
-  const checkHeaders = businessHeaders && businessHeaders.length > 0 ? businessHeaders : headers;
+function setraClearAndWriteObjects_(sheetName, rows, requiredHeaders, businessHeaders) {
+  const sheet = setraGetSheet_(sheetName);
+  const headers = setraGetHeaders_(sheet);
+  const map = setraAssertHeaders_(sheet, requiredHeaders);
+  const lastRow = sheet.getLastRow();
+  const width = headers.length;
 
-  for (let i = 0; i < checkHeaders.length; i++) {
-    const header = checkHeaders[i];
-    const colIndex = headers.indexOf(header);
-    if (colIndex === -1) continue;
-    const value = rowValues[colIndex];
-    if (value !== '' && value !== null && value !== undefined) {
-      return false;
-    }
+  if (lastRow >= SETRA.DATA_START_ROW) {
+    sheet.getRange(SETRA.DATA_START_ROW, 1, lastRow - SETRA.DATA_START_ROW + 1, width).clearContent().clearNote().setBackground(null);
   }
 
-  return true;
+  if (!rows || rows.length === 0) return { created: 0, updated: 0 };
+
+  const values = rows.map(function (row) {
+    const line = headers.map(function (header) {
+      return header ? setraValueForSheet_(header, row[header]) : '';
+    });
+    if (map.__sync_action) line[map.__sync_action - 1] = SETRA.SYNC_ACTION.SKIP;
+    if (map.__sync_status) line[map.__sync_status - 1] = SETRA.SYNC_STATUS.SYNCED;
+    if (map.__last_synced_at) line[map.__last_synced_at - 1] = setraNowIso_();
+    if (map.__sync_snapshot && businessHeaders) {
+      const obj = {};
+      headers.forEach(function (header, idx) { if (header) obj[header] = line[idx]; });
+      line[map.__sync_snapshot - 1] = setraBuildSnapshot_(obj, businessHeaders);
+    }
+    return line;
+  });
+
+  sheet.getRange(SETRA.DATA_START_ROW, 1, values.length, width).setValues(values);
+  return { created: values.length, updated: 0 };
 }
 
-function setraNormalizeCellValueForPayload_(value, headerName) {
+function setraValueForSheet_(header, value) {
   if (value === null || value === undefined) return '';
-
-  if (setraIsDateOnlyHeader_(headerName)) {
-    return setraNormalizeDateOnlyForPayload_(value, headerName);
-  }
-
-  if (setraIsTimeOnlyHeader_(headerName)) {
-    return setraNormalizeTimeOnlyForPayload_(value, headerName);
-  }
-
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
-    return Utilities.formatDate(value, setraGetTimezone_(), "yyyy-MM-dd'T'HH:mm:ssXXX");
-  }
-
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value;
-
-  return String(value).trim();
-}
-
-function setraIsDateOnlyHeader_(headerName) {
-  return ['tanggal_shipment', 'tanggal_awal', 'tanggal_akhir', 'tanggal_libur'].indexOf(String(headerName || '')) >= 0;
-}
-
-function setraIsTimeOnlyHeader_(headerName) {
-  return ['jam_berangkat', 'jam_pulang'].indexOf(String(headerName || '')) >= 0;
-}
-
-function setraNormalizeDateOnlyForPayload_(value, headerName) {
-  if (value === null || value === undefined || value === '') return '';
-
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
-    return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
-  }
-
-  if (typeof value === 'number' && value > 0) {
-    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
-    if (!isNaN(date.getTime())) {
-      return Utilities.formatDate(date, setraGetTimezone_(), 'yyyy-MM-dd');
-    }
-  }
-
-  const text = String(value || '').trim();
-  if (!text) return '';
-
-  let match = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:[T\s].*)?$/);
-  if (match) {
-    return setraBuildDateOnlyKey_(Number(match[1]), Number(match[2]), Number(match[3]), headerName);
-  }
-
-  match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (match) {
-    return setraBuildDateOnlyKey_(Number(match[3]), Number(match[2]), Number(match[1]), headerName);
-  }
-
-  throw new Error('Format ' + headerName + ' tidak valid: ' + text + '. Gunakan dd/mm/yyyy.');
-}
-
-function setraBuildDateOnlyKey_(year, month, day, headerName) {
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    throw new Error('Nilai ' + headerName + ' tidak valid.');
-  }
-  return String(year).padStart(4, '0') + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-}
-
-function setraNormalizeTimeOnlyForPayload_(value, headerName) {
-  if (value === null || value === undefined || value === '') return '';
-
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
-    return Utilities.formatDate(value, setraGetTimezone_(), 'HH:mm');
-  }
-
-  const text = String(value || '').trim();
-  if (!text) return '';
-
-  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-  if (!match) {
-    throw new Error('Format ' + headerName + ' tidak valid. Gunakan HH:mm.');
-  }
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    throw new Error('Nilai ' + headerName + ' tidak valid.');
-  }
-
-  return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
-}
-
-function setraValueForSheet_(headerName, value) {
-  if (value === null || value === undefined || value === '') return '';
-
-  if (setraIsDateOnlyHeader_(headerName)) {
-    const key = setraNormalizeDateOnlyForPayload_(value, headerName);
-    if (!key) return '';
-    const parts = key.split('-').map(Number);
-    return new Date(parts[0], parts[1] - 1, parts[2]);
-  }
-
+  if (header.indexOf('tanggal_') === 0 && value instanceof Date) return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
   return value;
 }
 
-
-function setraClearDataRows_(sheet, columnCount) {
-  const maxRows = sheet.getMaxRows();
-  if (maxRows < SETRA.DATA_START_ROW) return;
-  sheet.getRange(SETRA.DATA_START_ROW, 1, maxRows - SETRA.DATA_START_ROW + 1, columnCount).clearContent();
-}
-
-function setraWriteObjectsToSheet_(sheetName, rows) {
+function setraApplyPushResults_(sheetName, results, businessHeaders) {
+  if (!Array.isArray(results) || results.length === 0) return;
   const sheet = setraGetSheet_(sheetName);
   const headers = setraGetHeaders_(sheet);
-  const columnCount = headers.length;
-  const dataRows = Array.isArray(rows) ? rows : [];
-
-  setraClearDataRows_(sheet, columnCount);
-
-  if (dataRows.length === 0) {
-    return;
-  }
-
-  const output = dataRows.map(function (row) {
-    return headers.map(function (header) {
-      if (!header) return '';
-      return setraValueForSheet_(header, row[header]);
-    });
-  });
-
-  sheet.getRange(SETRA.DATA_START_ROW, 1, output.length, columnCount).setValues(output);
-}
-
-function setraSetCellByHeader_(sheet, rowNumber, headerMap, headerName, value) {
-  const columnNumber = headerMap[headerName];
-  if (!columnNumber) return;
-  sheet.getRange(rowNumber, columnNumber).setValue(value);
-}
-
-function setraGetCellByHeader_(sheet, rowNumber, headerMap, headerName) {
-  const columnNumber = headerMap[headerName];
-  if (!columnNumber) return '';
-  return sheet.getRange(rowNumber, columnNumber).getValue();
-}
-
-function setraSetSyncStatus_(sheetName, rowNumber, status, message) {
-  const sheet = setraGetSheet_(sheetName);
   const map = setraGetHeaderMap_(sheet);
-  setraSetCellByHeader_(sheet, rowNumber, map, '__sync_status', status || '');
-  setraSetCellByHeader_(sheet, rowNumber, map, '__sync_message', message || '');
-  setraSetCellByHeader_(sheet, rowNumber, map, '__last_synced_at', setraNowIso_());
-}
-
-function setraApplyPushResults_(sheetName, results) {
-  if (!Array.isArray(results) || results.length === 0) return;
-
-  const sheet = setraGetSheet_(sheetName);
-  const map = setraGetHeaderMap_(sheet);
+  const syncedAt = setraNowIso_();
 
   results.forEach(function (item) {
-    const rowNumber = Number(item.row_number || item.__row_number || 0);
+    const rowNumber = Number(item.row_number || 0);
     if (!rowNumber || rowNumber < SETRA.DATA_START_ROW) return;
 
-    const status = item.status || item.__sync_status || '';
-    const message = item.message || item.__sync_message || '';
+    const status = String(item.status || '').toUpperCase();
+    const values = item.values || {};
 
-    if (map.__sync_status) sheet.getRange(rowNumber, map.__sync_status).setValue(status);
-    if (map.__sync_message) sheet.getRange(rowNumber, map.__sync_message).setValue(message);
-    if (map.__last_synced_at) sheet.getRange(rowNumber, map.__last_synced_at).setValue(setraNowIso_());
-
-    const values = item.values || item.updated_values || {};
     Object.keys(values).forEach(function (header) {
-      if (map[header]) {
-        sheet.getRange(rowNumber, map[header]).setValue(setraValueForSheet_(header, values[header]));
-      }
+      if (!map[header]) return;
+      sheet.getRange(rowNumber, map[header]).setValue(setraValueForSheet_(header, values[header]));
     });
+
+    if (map.__sync_message) sheet.getRange(rowNumber, map.__sync_message).setValue(item.message || '');
+    if (map.__last_synced_at) sheet.getRange(rowNumber, map.__last_synced_at).setValue(syncedAt);
+
+    if (status === SETRA.SYNC_STATUS.SYNCED) {
+      if (map.__sync_action) sheet.getRange(rowNumber, map.__sync_action).setValue(SETRA.SYNC_ACTION.SKIP);
+      if (map.__sync_status) sheet.getRange(rowNumber, map.__sync_status).setValue(SETRA.SYNC_STATUS.SYNCED);
+      if (map.__sync_snapshot && businessHeaders) {
+        const rowValues = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
+        sheet.getRange(rowNumber, map.__sync_snapshot).setValue(setraBuildSnapshotFromRowValues_(headers, rowValues, businessHeaders));
+      }
+      sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).setBackground(null);
+    } else if (status === SETRA.SYNC_STATUS.ERROR) {
+      if (map.__sync_status) sheet.getRange(rowNumber, map.__sync_status).setValue(SETRA.SYNC_STATUS.ERROR);
+      if (map.__sync_action && !setraNormalizeText_(sheet.getRange(rowNumber, map.__sync_action).getValue())) {
+        sheet.getRange(rowNumber, map.__sync_action).setValue(SETRA.SYNC_ACTION.UPSERT);
+      }
+    }
   });
 }
 
-function setraAppendSyncLog_(sheetName, operation, direction, rowsTotal, rowsSuccess, rowsFailed, status, message) {
+function setraAppendSyncLog_(sheetName, operation, direction, total, success, failed, status, message) {
   const sheet = setraGetSheet_(SETRA.SHEETS.SYNC_LOG);
-  const logId = Utilities.getUuid();
-
   sheet.appendRow([
-    logId,
+    Utilities.getUuid(),
     setraNowIso_(),
     setraGetCurrentUserEmail_(),
     sheetName,
     operation,
     direction,
-    Number(rowsTotal || 0),
-    Number(rowsSuccess || 0),
-    Number(rowsFailed || 0),
+    Number(total || 0),
+    Number(success || 0),
+    Number(failed || 0),
     status || '',
     message || '',
   ]);
 }
 
-function setraFormatManagedSheet_(sheetName) {
+function setraShowResultDialog_(title, rows, message) {
+  let html = '<!doctype html><html><head><base target="_top"><style>body{font-family:Arial,sans-serif;margin:0;padding:18px;color:#111827}.msg{font-size:13px;margin-bottom:12px;line-height:1.45}table{border-collapse:collapse;width:100%;font-size:13px}td{border:1px solid #e5e7eb;padding:8px}.k{font-weight:700;background:#f9fafb;width:58%}button{margin-top:14px;padding:8px 14px;border:0;border-radius:6px;background:#111827;color:white;font-weight:700;cursor:pointer}</style></head><body>';
+  html += '<div class="msg">' + setraEscapeHtml_(message || '') + '</div><table>';
+  (rows || []).forEach(function (row) {
+    html += '<tr><td class="k">' + setraEscapeHtml_(row[0]) + '</td><td>' + setraEscapeHtml_(row[1]) + '</td></tr>';
+  });
+  html += '</table><button onclick="google.script.host.close()">Tutup</button></body></html>';
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(430).setHeight(330), title);
+}
+
+function setraEscapeHtml_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function setraDeleteRowsInGroups_(sheet, rowNumbers) {
+  const rows = Array.from(new Set(rowNumbers || [])).filter(function (row) { return row >= SETRA.DATA_START_ROW; }).sort(function (a, b) { return b - a; });
+  if (rows.length === 0) return;
+
+  let groupStart = rows[0];
+  let groupEnd = rows[0];
+
+  for (let i = 1; i <= rows.length; i += 1) {
+    const row = rows[i];
+    if (row === groupEnd - 1) {
+      groupEnd = row;
+      continue;
+    }
+    sheet.deleteRows(groupEnd, groupStart - groupEnd + 1);
+    groupStart = row;
+    groupEnd = row;
+  }
+}
+
+function setraHideTechnicalColumns_(sheetName, headers) {
   const sheet = setraGetSheet_(sheetName);
   const map = setraGetHeaderMap_(sheet);
-  const maxRows = Math.max(sheet.getMaxRows() - SETRA.DATA_START_ROW + 1, 1);
-
-  if (map.tanggal_shipment) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_shipment, maxRows, 1).setNumberFormat('dd/mm/yyyy');
-  if (map.tanggal_awal) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_awal, maxRows, 1).setNumberFormat('dd/mm/yyyy');
-  if (map.tanggal_akhir) sheet.getRange(SETRA.DATA_START_ROW, map.tanggal_akhir, maxRows, 1).setNumberFormat('dd/mm/yyyy');
-  if (map.jam_berangkat) sheet.getRange(SETRA.DATA_START_ROW, map.jam_berangkat, maxRows, 1).setNumberFormat('hh:mm');
-  if (map.jam_pulang) sheet.getRange(SETRA.DATA_START_ROW, map.jam_pulang, maxRows, 1).setNumberFormat('hh:mm');
-  if (map.jumlah_toko) sheet.getRange(SETRA.DATA_START_ROW, map.jumlah_toko, maxRows, 1).setNumberFormat('0');
-  if (map.terkirim) sheet.getRange(SETRA.DATA_START_ROW, map.terkirim, maxRows, 1).setNumberFormat('0');
-  if (map.gagal) sheet.getRange(SETRA.DATA_START_ROW, map.gagal, maxRows, 1).setNumberFormat('0');
-}
-
-function setraGetUsersNameMap_() {
-  const sheet = setraGetSheet_(SETRA.SHEETS.USERS);
-  const headers = setraGetHeaders_(sheet);
-  const map = setraGetHeaderMap_(sheet);
-  const lastRow = setraGetLastDataRow_(sheet);
-  const result = {};
-
-  if (!map.nama_lengkap || !map.nik_kerja || lastRow < SETRA.DATA_START_ROW) {
-    return result;
-  }
-
-  const values = sheet.getRange(SETRA.DATA_START_ROW, 1, lastRow - SETRA.DATA_START_ROW + 1, headers.length).getValues();
-
-  values.forEach(function (row) {
-    const name = setraNormalizeText_(row[map.nama_lengkap - 1]);
-    const nik = setraNormalizeText_(row[map.nik_kerja - 1]);
-    if (!name || !nik) return;
-
-    const key = setraNormalizeKey_(name);
-    if (!result[key]) {
-      result[key] = { nik: nik, count: 0 };
+  headers.forEach(function (header) {
+    if (map[header]) {
+      try { sheet.hideColumns(map[header]); } catch (error) {}
     }
-    result[key].count += 1;
   });
-
-  return result;
 }
 
-function setraResolveNikByName_(name, usersNameMap) {
-  const key = setraNormalizeKey_(name);
-  if (!key || !usersNameMap[key]) return '';
-  if (usersNameMap[key].count !== 1) return '';
-  return usersNameMap[key].nik || '';
+function setraProtectTechnicalColumns_(sheetName, headers) {
+  const sheet = setraGetSheet_(sheetName);
+  const map = setraGetHeaderMap_(sheet);
+  const superadmins = setraGetSuperadminEmails_();
+
+  headers.forEach(function (header) {
+    const col = map[header];
+    if (!col) return;
+    try {
+      const protection = sheet.getRange(1, col, sheet.getMaxRows(), 1).protect().setDescription('Setra technical column: ' + header);
+      protection.setWarningOnly(false);
+      if (superadmins.length > 0) {
+        protection.removeEditors(protection.getEditors());
+        protection.addEditors(superadmins);
+      }
+    } catch (error) {}
+  });
 }
 
-function setraGetRowsArrayFromResponse_(response) {
-  if (!response) return [];
-  if (Array.isArray(response.rows)) return response.rows;
-  if (Array.isArray(response.data)) return response.data;
-  if (response.result && Array.isArray(response.result.rows)) return response.result.rows;
-  return [];
+function setraProtectAreaSheet_() {
+  const sheet = setraGetSheet_(SETRA.SHEETS.AREA);
+  const superadmins = setraGetSuperadminEmails_();
+
+  try { sheet.hideSheet(); } catch (error) {}
+
+  try {
+    const protection = sheet.protect().setDescription('Setra area sheet - superadmin only');
+    protection.setWarningOnly(false);
+    if (superadmins.length > 0) {
+      protection.removeEditors(protection.getEditors());
+      protection.addEditors(superadmins);
+    }
+  } catch (error) {}
 }
 
-function setraGetResultsArrayFromResponse_(response) {
-  if (!response) return [];
-  if (Array.isArray(response.results)) return response.results;
-  if (Array.isArray(response.row_results)) return response.row_results;
-  if (response.result && Array.isArray(response.result.results)) return response.result.results;
-  return [];
+function setraBuildDropdownRule_(values) {
+  return SpreadsheetApp.newDataValidation().requireValueInList(values, true).setAllowInvalid(true).build();
+}
+
+function setraSetCellError_(cell, message) {
+  cell.setBackground('#f4cccc');
+  cell.setNote(message || 'Input tidak valid.');
+}
+
+function setraClearCellError_(cell) {
+  cell.setBackground(null);
+  cell.clearNote();
 }

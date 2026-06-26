@@ -23,6 +23,7 @@ type SpreadsheetUsersPayload = {
 };
 
 type ExistingUserRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string | null;
   user_role: string;
@@ -30,8 +31,10 @@ type ExistingUserRow = {
 };
 
 type SpreadsheetUserRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string;
+  area_code: string | null;
   nama_lengkap: string;
   jabatan: UserJabatan;
   username: string;
@@ -85,11 +88,13 @@ export async function POST(request: Request) {
             UPDATE users
             SET is_active = FALSE
             WHERE nik_kerja = ${nikKerja}
-              AND area_id = ${auth.context.areaId}
+              AND area_id = ${auth.context.areaId}::BIGINT
               AND user_role = 'regular'
             RETURNING
+              user_id::TEXT AS user_id,
               nik_kerja,
-              area_id,
+              area_id::TEXT AS area_id,
+              (SELECT area_code FROM area WHERE area.area_id = users.area_id) AS area_code,
               nama_lengkap,
               jabatan,
               username,
@@ -127,7 +132,7 @@ export async function POST(request: Request) {
         const isActive = toBoolean(row.is_active, true);
 
         const existing = await query<ExistingUserRow>`
-          SELECT nik_kerja, area_id, user_role, password
+          SELECT user_id::TEXT AS user_id, nik_kerja, area_id::TEXT AS area_id, user_role, password
           FROM users
           WHERE nik_kerja = ${nikKerja}
           LIMIT 1
@@ -159,11 +164,13 @@ export async function POST(request: Request) {
                 password = ${finalPassword},
                 is_active = ${isActive}
               WHERE nik_kerja = ${nikKerja}
-                AND area_id = ${auth.context.areaId}
+                AND area_id = ${auth.context.areaId}::BIGINT
                 AND user_role = 'regular'
               RETURNING
+                user_id::TEXT AS user_id,
                 nik_kerja,
-                area_id,
+                area_id::TEXT AS area_id,
+                (SELECT area_code FROM area WHERE area.area_id = users.area_id) AS area_code,
                 nama_lengkap,
                 jabatan,
                 username,
@@ -183,7 +190,7 @@ export async function POST(request: Request) {
               )
               VALUES (
                 ${nikKerja},
-                ${auth.context.areaId},
+                ${auth.context.areaId}::BIGINT,
                 ${namaLengkap},
                 ${jabatan},
                 'regular',
@@ -192,8 +199,10 @@ export async function POST(request: Request) {
                 ${isActive}
               )
               RETURNING
+                user_id::TEXT AS user_id,
                 nik_kerja,
-                area_id,
+                area_id::TEXT AS area_id,
+                (SELECT area_code FROM area WHERE area.area_id = users.area_id) AS area_code,
                 nama_lengkap,
                 jabatan,
                 username,

@@ -1,11 +1,13 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
-type UserRole = "regular" | "admin" | "superadmin";
+type UserRole = "regular" | "admin" | "super_admin";
 
 type ProxySession = {
+  user_id: string;
   nik_kerja: string;
   area_id: string | null;
+  area_code: string | null;
   nama_lengkap: string;
   username: string;
   user_role: UserRole;
@@ -25,7 +27,7 @@ const PUBLIC_API_PATHS = [
 const ROLE_PAGE_PREFIX: Record<UserRole, string> = {
   regular: "/regular",
   admin: "/admin",
-  superadmin: "/superadmin",
+  super_admin: "/superadmin",
 };
 
 function getAuthCookieName(): string {
@@ -74,7 +76,7 @@ function getProtectedRole(pathname: string): UserRole | null {
   }
 
   if (pathname === "/superadmin" || pathname.startsWith("/superadmin/")) {
-    return "superadmin";
+    return "super_admin";
   }
 
   if (pathname.startsWith("/api/regular/")) {
@@ -86,7 +88,7 @@ function getProtectedRole(pathname: string): UserRole | null {
   }
 
   if (pathname.startsWith("/api/superadmin/")) {
-    return "superadmin";
+    return "super_admin";
   }
 
   return null;
@@ -142,6 +144,7 @@ async function readSession(request: NextRequest): Promise<ProxySession | null> {
     const { payload } = await jwtVerify(token, getJwtSecret());
 
     if (
+      typeof payload.user_id !== "string" ||
       typeof payload.nik_kerja !== "string" ||
       typeof payload.nama_lengkap !== "string" ||
       typeof payload.username !== "string" ||
@@ -150,13 +153,15 @@ async function readSession(request: NextRequest): Promise<ProxySession | null> {
       return null;
     }
 
-    if (!["regular", "admin", "superadmin"].includes(payload.user_role)) {
+    if (!["regular", "admin", "super_admin"].includes(payload.user_role)) {
       return null;
     }
 
     return {
+      user_id: payload.user_id,
       nik_kerja: payload.nik_kerja,
       area_id: typeof payload.area_id === "string" ? payload.area_id : null,
+      area_code: typeof payload.area_code === "string" ? payload.area_code : null,
       nama_lengkap: payload.nama_lengkap,
       username: payload.username,
       user_role: payload.user_role as UserRole,

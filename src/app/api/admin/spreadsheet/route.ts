@@ -6,6 +6,7 @@ import { adminSpreadsheetSchema } from "@/lib/validation";
 
 type AreaSpreadsheetRow = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   spreadsheet_id: string | null;
   spreadsheet_url: string | null;
@@ -76,12 +77,13 @@ export async function GET() {
 
     const rows = await query<AreaSpreadsheetRow>`
       SELECT
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         spreadsheet_id,
         spreadsheet_url
       FROM area
-      WHERE area_id = ${sessionResult.areaId}
+      WHERE area_id = ${sessionResult.areaId}::BIGINT
         AND is_active = TRUE
       LIMIT 1
     `;
@@ -156,10 +158,11 @@ export async function POST(request: Request) {
       SET
         spreadsheet_id = ${parsed.data.spreadsheet_id},
         spreadsheet_url = ${parsed.data.spreadsheet_url}
-      WHERE area_id = ${sessionResult.areaId}
+      WHERE area_id = ${sessionResult.areaId}::BIGINT
         AND is_active = TRUE
       RETURNING
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         spreadsheet_id,
         spreadsheet_url

@@ -232,7 +232,7 @@ export async function GET(request: Request) {
 
     const locks = await getRegularShipmentLocksInRange({
       areaId: session.area_id,
-      nikKerja: session.nik_kerja,
+      userId: session.user_id,
       startDate,
       endDate,
     });
@@ -253,8 +253,8 @@ export async function GET(request: Request) {
         gagal,
         COALESCE(alasan, '') AS alasan
       FROM shipments
-      WHERE nik_kerja = ${session.nik_kerja}
-        AND area_id = ${session.area_id}
+      WHERE user_id = ${session.user_id}::BIGINT
+        AND area_id = ${session.area_id}::BIGINT
         AND is_freelance = FALSE
         AND tanggal_shipment BETWEEN ${startDate}::DATE AND ${endDate}::DATE
       ORDER BY tanggal_shipment ASC
@@ -283,8 +283,10 @@ export async function GET(request: Request) {
       ok: true,
       data: {
         user: {
+          user_id: session.user_id,
           nik_kerja: session.nik_kerja,
           area_id: session.area_id,
+          area_code: session.area_code,
           nama_lengkap: session.nama_lengkap,
           username: session.username,
           user_role: session.user_role,

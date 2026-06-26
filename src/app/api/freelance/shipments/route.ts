@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       SELECT EXISTS (
         SELECT 1
         FROM area
-        WHERE area_id = ${payload.area_id}
+        WHERE area_id = ${payload.area_id}::BIGINT
           AND is_active = TRUE
       ) AS exists
     `;
@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     const rows = await query<InsertedShipmentRow>`
       INSERT INTO shipments (
         area_id,
-        nik_kerja,
+        user_id,
         is_freelance,
         nama_freelance,
         tanggal_shipment,
@@ -122,10 +122,11 @@ export async function POST(request: Request) {
         jam_pulang,
         jumlah_toko,
         terkirim,
+        gagal,
         alasan
       )
       VALUES (
-        ${payload.area_id},
+        ${payload.area_id}::BIGINT,
         NULL,
         TRUE,
         ${payload.nama_freelance},
@@ -135,11 +136,12 @@ export async function POST(request: Request) {
         ${payload.jam_pulang ?? null}::TIME,
         ${payload.jumlah_toko},
         ${payload.terkirim},
+        ${payload.jumlah_toko - payload.terkirim},
         ${alasanForDb}
       )
       RETURNING
         shipment_id,
-        area_id,
+        area_id::TEXT AS area_id,
         nama_freelance,
         tanggal_shipment::TEXT AS tanggal_shipment,
         shipment_code,
@@ -179,7 +181,7 @@ export async function POST(request: Request) {
         );
       }
 
-      if (dbError.constraint === "shipments_freelance_unique_per_day") {
+      if (dbError.constraint === "ux_shipments_freelance_area_name_date") {
         return NextResponse.json(
           {
             ok: false,

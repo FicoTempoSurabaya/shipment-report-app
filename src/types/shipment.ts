@@ -11,6 +11,7 @@ export const SHIPMENT_STATUS = [
   "Kirim Ulang",
   "Kiur Unit",
   "Standby",
+  "OFF",
 ] as const;
 
 export const FAILURE_REASONS = [
@@ -32,6 +33,7 @@ export type ShipmentFailureReason = {
 export type Shipment = {
   shipment_id: number;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string | null;
   is_freelance: boolean;
   nama_freelance: string | null;

@@ -20,6 +20,7 @@ type SpreadsheetLockingPayload = {
 };
 
 type UserLookupRow = {
+  user_id: string;
   nik_kerja: string;
   nama_lengkap: string;
 };
@@ -27,21 +28,36 @@ type UserLookupRow = {
 type LockingDbRow = {
   kunci_id: string;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string | null;
   nama_lengkap: string | null;
   tanggal_awal: string;
   tanggal_akhir: string;
-  keterangan_kunci: string | null;
+  keterangan_kunci: string;
 };
 
 const BUSINESS_HEADERS = ["nama_lengkap", "tanggal_awal", "tanggal_akhir", "keterangan_kunci"];
 
 async function getUserByNik(params: { areaId: string; nikKerja: string }) {
   const rows = await query<UserLookupRow>`
-    SELECT nik_kerja, nama_lengkap
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
     FROM users
-    WHERE area_id = ${params.areaId}
+    WHERE area_id = ${params.areaId}::BIGINT
       AND nik_kerja = ${params.nikKerja}
+      AND user_role = 'regular'
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  return rows[0] ?? null;
+}
+
+async function getUserById(params: { areaId: string; userId: string }) {
+  const rows = await query<UserLookupRow>`
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
+    FROM users
+    WHERE area_id = ${params.areaId}::BIGINT
+      AND user_id = ${params.userId}::BIGINT
       AND user_role = 'regular'
       AND is_active = TRUE
     LIMIT 1
@@ -52,9 +68,9 @@ async function getUserByNik(params: { areaId: string; nikKerja: string }) {
 
 async function getUsersByName(params: { areaId: string; namaLengkap: string }) {
   return query<UserLookupRow>`
-    SELECT nik_kerja, nama_lengkap
+    SELECT user_id::TEXT AS user_id, nik_kerja, nama_lengkap
     FROM users
-    WHERE area_id = ${params.areaId}
+    WHERE area_id = ${params.areaId}::BIGINT
       AND LOWER(nama_lengkap) = LOWER(${params.namaLengkap})
       AND user_role = 'regular'
       AND is_active = TRUE
@@ -62,16 +78,28 @@ async function getUsersByName(params: { areaId: string; namaLengkap: string }) {
   `;
 }
 
-async function resolveNikKerja(params: {
+async function resolveUser(params: {
   areaId: string;
+  userId: string | null;
   nikKerja: string | null;
   namaLengkap: string | null;
 }) {
-  if (!params.nikKerja && !params.namaLengkap) {
+  if (!params.userId && !params.nikKerja && !params.namaLengkap) {
     return {
+      user_id: null,
       nik_kerja: null,
       nama_lengkap: null,
     };
+  }
+
+  if (params.userId) {
+    const user = await getUserById({ areaId: params.areaId, userId: params.userId });
+
+    if (!user) {
+      throw new Error("user_id tidak ditemukan pada users area ini");
+    }
+
+    return user;
   }
 
   if (params.nikKerja) {
@@ -107,13 +135,18 @@ function buildSheetValues(row: LockingDbRow) {
     nama_lengkap: row.nama_lengkap ?? "",
     tanggal_awal: row.tanggal_awal,
     tanggal_akhir: row.tanggal_akhir,
-    keterangan_kunci: row.keterangan_kunci ?? "",
+    keterangan_kunci: row.keterangan_kunci,
     __kunci_id: row.kunci_id,
+    __user_id: row.user_id ?? "",
     __nik_kerja: row.nik_kerja ?? "",
     __sync_action: "UPSERT",
     __sync_status: "SYNCED",
     __sync_message: "Locking tersimpan",
   };
+}
+
+function getKeterangan(value: unknown) {
+  return toOptionalString(value) ?? "Dikunci oleh spreadsheet";
 }
 
 export async function POST(request: Request) {
@@ -163,7 +196,7 @@ export async function POST(request: Request) {
           const deleted = await query<{ kunci_id: string }>`
             DELETE FROM kunci_shipment
             WHERE kunci_id = ${kunciId}::BIGINT
-              AND area_id = ${auth.context.areaId}
+              AND area_id = ${auth.context.areaId}::BIGINT
             RETURNING kunci_id::TEXT AS kunci_id
           `;
 
@@ -193,27 +226,29 @@ export async function POST(request: Request) {
           throw new Error("tanggal_akhir tidak boleh lebih kecil dari tanggal_awal");
         }
 
-        const resolvedUser = await resolveNikKerja({
+        const resolvedUser = await resolveUser({
           areaId: auth.context.areaId,
+          userId: toOptionalString(row.__user_id),
           nikKerja: toOptionalString(row.__nik_kerja),
           namaLengkap: toOptionalString(row.nama_lengkap),
         });
-        const keteranganKunci = toOptionalString(row.keterangan_kunci);
+        const keteranganKunci = getKeterangan(row.keterangan_kunci);
 
         const saved = kunciId
           ? await query<LockingDbRow>`
               UPDATE kunci_shipment k
               SET
-                nik_kerja = ${resolvedUser.nik_kerja},
+                user_id = ${resolvedUser.user_id}::BIGINT,
                 tanggal_awal = ${tanggalAwal}::DATE,
                 tanggal_akhir = ${tanggalAkhir}::DATE,
                 keterangan_kunci = ${keteranganKunci}
               WHERE k.kunci_id = ${kunciId}::BIGINT
-                AND k.area_id = ${auth.context.areaId}
+                AND k.area_id = ${auth.context.areaId}::BIGINT
               RETURNING
                 k.kunci_id::TEXT AS kunci_id,
-                k.area_id,
-                k.nik_kerja,
+                k.area_id::TEXT AS area_id,
+                k.user_id::TEXT AS user_id,
+                ${resolvedUser.nik_kerja}::TEXT AS nik_kerja,
                 ${resolvedUser.nama_lengkap}::TEXT AS nama_lengkap,
                 k.tanggal_awal::TEXT AS tanggal_awal,
                 k.tanggal_akhir::TEXT AS tanggal_akhir,
@@ -222,22 +257,23 @@ export async function POST(request: Request) {
           : await query<LockingDbRow>`
               INSERT INTO kunci_shipment (
                 area_id,
-                nik_kerja,
+                user_id,
                 tanggal_awal,
                 tanggal_akhir,
                 keterangan_kunci
               )
               VALUES (
-                ${auth.context.areaId},
-                ${resolvedUser.nik_kerja},
+                ${auth.context.areaId}::BIGINT,
+                ${resolvedUser.user_id}::BIGINT,
                 ${tanggalAwal}::DATE,
                 ${tanggalAkhir}::DATE,
                 ${keteranganKunci}
               )
               RETURNING
                 kunci_id::TEXT AS kunci_id,
-                area_id,
-                nik_kerja,
+                area_id::TEXT AS area_id,
+                user_id::TEXT AS user_id,
+                ${resolvedUser.nik_kerja}::TEXT AS nik_kerja,
                 ${resolvedUser.nama_lengkap}::TEXT AS nama_lengkap,
                 tanggal_awal::TEXT AS tanggal_awal,
                 tanggal_akhir::TEXT AS tanggal_akhir,

@@ -22,6 +22,7 @@ type RegularDateCard = {
   lock: {
     kunci_id: number;
     area_id: string;
+    user_id: string | null;
     nik_kerja: string | null;
     keterangan_kunci: string | null;
   } | null;
@@ -34,8 +35,10 @@ type StatusMetric = {
 
 type RegularDashboardData = {
   user: {
+    user_id: string;
     nik_kerja: string;
     area_id: string | null;
+    area_code: string | null;
     nama_lengkap: string;
     username: string;
     user_role: "regular";

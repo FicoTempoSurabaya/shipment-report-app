@@ -14,7 +14,7 @@ type LoginSuccessResponse = {
     area_id: string | null;
     nama_lengkap: string;
     username: string;
-    user_role: "regular" | "admin" | "superadmin";
+    user_role: "regular" | "admin" | "super_admin";
   };
 };
 

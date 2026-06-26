@@ -18,6 +18,7 @@ type AreaRow = {
 };
 
 type RegularDetailRow = {
+  user_id: string;
   nik_kerja: string;
   nama_lengkap: string;
   shipment_id: number | null;
@@ -48,6 +49,7 @@ type FreelanceDetailRow = {
 
 type AdminTanggalItem = {
   person_type: "regular" | "freelance";
+  user_id: string | null;
   nik_kerja: string | null;
   nama_lengkap: string;
   status: "Regular" | "Freelance";
@@ -56,6 +58,7 @@ type AdminTanggalItem = {
   shipment: {
     shipment_id: number;
     area_id: string;
+    user_id: string | null;
     nik_kerja: string | null;
     is_freelance: boolean;
     nama_freelance: string | null;
@@ -168,11 +171,11 @@ export async function GET(
 
     const areaRows = await query<AreaRow>`
       SELECT
-        a.area_id,
+        a.area_id::TEXT AS area_id,
         a.nama_area,
         a.sla_area
       FROM area a
-      WHERE a.area_id = ${areaId}
+      WHERE a.area_id = ${areaId}::BIGINT
       LIMIT 1
     `;
 
@@ -180,6 +183,7 @@ export async function GET(
 
     const regularRows = await query<RegularDetailRow>`
       SELECT
+        u.user_id::TEXT AS user_id,
         u.nik_kerja,
         u.nama_lengkap,
         s.shipment_id,
@@ -197,11 +201,11 @@ export async function GET(
         COALESCE(s.alasan, '') AS alasan
       FROM users u
       LEFT JOIN shipments s
-        ON s.nik_kerja = u.nik_kerja
-        AND s.area_id = ${areaId}
+        ON s.user_id = u.user_id
+        AND s.area_id = ${areaId}::BIGINT
         AND s.is_freelance = FALSE
         AND s.tanggal_shipment = ${date}::DATE
-      WHERE u.area_id = ${areaId}
+      WHERE u.area_id = ${areaId}::BIGINT
         AND u.user_role = 'regular'
         AND u.is_active = TRUE
       ORDER BY u.nama_lengkap ASC
@@ -224,7 +228,7 @@ export async function GET(
         s.gagal,
         COALESCE(s.alasan, '') AS alasan
       FROM shipments s
-      WHERE s.area_id = ${areaId}
+      WHERE s.area_id = ${areaId}::BIGINT
         AND s.is_freelance = TRUE
         AND s.tanggal_shipment = ${date}::DATE
       ORDER BY s.nama_freelance ASC
@@ -232,6 +236,7 @@ export async function GET(
 
     const regularItems: AdminTanggalItem[] = regularRows.map((row) => ({
       person_type: "regular",
+      user_id: row.user_id,
       nik_kerja: row.nik_kerja,
       nama_lengkap: row.nama_lengkap,
       status: "Regular",
@@ -241,6 +246,7 @@ export async function GET(
         ? {
             shipment_id: row.shipment_id,
             area_id: areaId,
+            user_id: row.user_id,
             nik_kerja: row.nik_kerja,
             is_freelance: false,
             nama_freelance: null,
@@ -259,6 +265,7 @@ export async function GET(
 
     const freelanceItems: AdminTanggalItem[] = freelanceRows.map((row) => ({
       person_type: "freelance",
+      user_id: null,
       nik_kerja: null,
       nama_lengkap: row.nama_freelance,
       status: "Freelance",
@@ -267,6 +274,7 @@ export async function GET(
       shipment: {
         shipment_id: row.shipment_id,
         area_id: areaId,
+        user_id: null,
         nik_kerja: null,
         is_freelance: true,
         nama_freelance: row.nama_freelance,

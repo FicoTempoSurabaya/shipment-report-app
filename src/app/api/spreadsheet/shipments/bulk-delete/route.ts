@@ -10,7 +10,7 @@ type BulkDeletePayload = {
 type ShipmentTargetRow = {
   shipment_id: string;
   tanggal_shipment: string;
-  nik_kerja: string | null;
+  user_id: string | null;
 };
 
 type FailedItem = {
@@ -35,17 +35,17 @@ function normalizeShipmentIds(value: unknown): string[] {
 async function isShipmentLocked(params: {
   areaId: string;
   tanggalShipment: string;
-  nikKerja: string | null;
+  userId: string | null;
 }): Promise<boolean> {
   const rows = await query<{ locked: boolean }>`
     SELECT EXISTS (
       SELECT 1
       FROM kunci_shipment k
-      WHERE k.area_id = ${params.areaId}
+      WHERE k.area_id = ${params.areaId}::BIGINT
         AND ${params.tanggalShipment}::DATE BETWEEN k.tanggal_awal AND k.tanggal_akhir
         AND (
-          k.nik_kerja IS NULL
-          OR k.nik_kerja = ${params.nikKerja}
+          k.user_id IS NULL
+          OR k.user_id = ${params.userId}::BIGINT
         )
     ) AS locked
   `;
@@ -83,10 +83,10 @@ async function handleBulkDelete(request: Request) {
           SELECT
             shipment_id::TEXT AS shipment_id,
             tanggal_shipment::TEXT AS tanggal_shipment,
-            nik_kerja
+            user_id::TEXT AS user_id
           FROM shipments
           WHERE shipment_id = ${shipmentId}::BIGINT
-            AND area_id = ${auth.context.areaId}
+            AND area_id = ${auth.context.areaId}::BIGINT
           LIMIT 1
         `;
 
@@ -100,7 +100,7 @@ async function handleBulkDelete(request: Request) {
         const locked = await isShipmentLocked({
           areaId: auth.context.areaId,
           tanggalShipment: target.tanggal_shipment,
-          nikKerja: target.nik_kerja,
+          userId: target.user_id,
         });
 
         if (locked) {
@@ -111,7 +111,7 @@ async function handleBulkDelete(request: Request) {
         const deleted = await query<{ shipment_id: string }>`
           DELETE FROM shipments
           WHERE shipment_id = ${shipmentId}::BIGINT
-            AND area_id = ${auth.context.areaId}
+            AND area_id = ${auth.context.areaId}::BIGINT
           RETURNING shipment_id::TEXT AS shipment_id
         `;
 

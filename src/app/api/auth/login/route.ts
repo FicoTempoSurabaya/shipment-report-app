@@ -6,8 +6,10 @@ import { loginSchema } from "@/lib/validation";
 import type { UserRole } from "@/types/user";
 
 type LoginUserRow = {
+  user_id: string;
   nik_kerja: string;
   area_id: string | null;
+  area_code: string | null;
   nama_lengkap: string;
   username: string;
   user_role: UserRole;
@@ -35,15 +37,18 @@ export async function POST(request: Request) {
 
     const rows = await query<LoginUserRow>`
       SELECT
-        nik_kerja,
-        area_id,
-        nama_lengkap,
-        username,
-        user_role
-      FROM users
-      WHERE username = ${username}
-        AND password = ${password}
-        AND is_active = TRUE
+        u.user_id::TEXT AS user_id,
+        u.nik_kerja,
+        u.area_id::TEXT AS area_id,
+        a.area_code,
+        u.nama_lengkap,
+        u.username,
+        u.user_role
+      FROM users u
+      LEFT JOIN area a ON a.area_id = u.area_id
+      WHERE u.username = ${username}
+        AND u.password = ${password}
+        AND u.is_active = TRUE
       LIMIT 1
     `;
 
@@ -61,13 +66,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await setSessionCookie({
-      nik_kerja: user.nik_kerja,
-      area_id: user.area_id,
-      nama_lengkap: user.nama_lengkap,
-      username: user.username,
-      user_role: user.user_role,
-    });
+    await setSessionCookie(user);
 
     return NextResponse.json({
       ok: true,

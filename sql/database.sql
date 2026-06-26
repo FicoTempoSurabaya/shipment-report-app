@@ -1,86 +1,309 @@
-CREATE SCHEMA "public";
-CREATE TYPE "user_jabatan_enum" AS ENUM('Driver', 'Fico', 'Team_Leader');
-CREATE TYPE "user_role_enum" AS ENUM('regular', 'admin', 'superadmin');
-CREATE TYPE "area_timezone_enum" AS ENUM('Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura');
-CREATE TABLE "area" (
-	"area_id" varchar(20) PRIMARY KEY,
-	"nama_area" varchar(100) NOT NULL,
-	"sla_area" integer NOT NULL,
-	"spreadsheet_id" text,
-	"spreadsheet_url" text,
-	"is_active" boolean DEFAULT true NOT NULL,
-	"area_timezone" area_timezone_enum DEFAULT 'Asia/Jakarta' NOT NULL,
-	CONSTRAINT "area_sla_area_check" CHECK ((sla_area >= 0))
+-- =========================================================
+-- Shipment Report App - Database Schema Terbaru
+-- PostgreSQL
+-- Berdasarkan skema baru: area, users, libur_kalender,
+-- shipments, dan kunci_shipment.
+-- =========================================================
+
+BEGIN;
+
+-- =========================================================
+-- OPTIONAL RESET
+-- Aktifkan hanya jika database/schema memang akan dibangun ulang.
+-- =========================================================
+
+-- DROP TABLE IF EXISTS kunci_shipment CASCADE;
+-- DROP TABLE IF EXISTS shipments CASCADE;
+-- DROP TABLE IF EXISTS libur_kalender CASCADE;
+-- DROP TABLE IF EXISTS users CASCADE;
+-- DROP TABLE IF EXISTS area CASCADE;
+-- DROP TYPE IF EXISTS area_timezone_enum CASCADE;
+-- DROP TYPE IF EXISTS user_jabatan_enum CASCADE;
+-- DROP TYPE IF EXISTS user_role_enum CASCADE;
+
+-- =========================================================
+-- ENUM
+-- =========================================================
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'area_timezone_enum') THEN
+    CREATE TYPE area_timezone_enum AS ENUM (
+      'Asia/Jakarta',
+      'Asia/Makassar',
+      'Asia/Jayapura'
+    );
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_jabatan_enum') THEN
+    CREATE TYPE user_jabatan_enum AS ENUM (
+      'Team Leader',
+      'Field Coordinator',
+      'Driver'
+    );
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role_enum') THEN
+    CREATE TYPE user_role_enum AS ENUM (
+      'super_admin',
+      'admin',
+      'regular'
+    );
+  END IF;
+END $$;
+
+-- =========================================================
+-- FUNCTION AUTO UPDATE updated_at
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =========================================================
+-- TABLE: area
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS area (
+  area_id BIGSERIAL PRIMARY KEY,
+  area_code VARCHAR(20) NOT NULL,
+  nama_area VARCHAR(100) NOT NULL,
+  sla_area INTEGER NOT NULL,
+  spreadsheet_id TEXT NULL,
+  spreadsheet_url TEXT NULL,
+  area_timezone area_timezone_enum NOT NULL DEFAULT 'Asia/Jakarta',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_area_code_not_empty CHECK (btrim(area_code) <> ''),
+  CONSTRAINT chk_nama_area_not_empty CHECK (btrim(nama_area) <> ''),
+  CONSTRAINT chk_sla_area_positive CHECK (sla_area > 0)
 );
-CREATE TABLE "kunci_shipment" (
-	"kunci_id" bigserial PRIMARY KEY,
-	"area_id" varchar(20),
-	"nik_kerja" varchar(30),
-	"tanggal_awal" date NOT NULL,
-	"tanggal_akhir" date NOT NULL,
-	"keterangan_kunci" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "kunci_shipment_tanggal_check" CHECK ((tanggal_akhir >= tanggal_awal))
+
+DROP TRIGGER IF EXISTS trg_area_updated_at ON area;
+CREATE TRIGGER trg_area_updated_at
+BEFORE UPDATE ON area
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- TABLE: users
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS users (
+  user_id BIGSERIAL PRIMARY KEY,
+  nik_kerja VARCHAR(30) NOT NULL,
+  area_id BIGINT NOT NULL,
+  nama_lengkap VARCHAR(60) NOT NULL,
+  jabatan user_jabatan_enum NOT NULL,
+  user_role user_role_enum NOT NULL DEFAULT 'regular',
+  username TEXT NOT NULL,
+  password TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fk_users_area
+    FOREIGN KEY (area_id)
+    REFERENCES area(area_id)
+    ON UPDATE CASCADE
+    ON DELETE RESTRICT,
+
+  CONSTRAINT chk_users_nik_kerja_not_empty CHECK (btrim(nik_kerja) <> ''),
+  CONSTRAINT chk_users_nama_lengkap_not_empty CHECK (btrim(nama_lengkap) <> ''),
+  CONSTRAINT chk_users_username_not_empty CHECK (btrim(username) <> ''),
+  CONSTRAINT chk_users_password_not_empty CHECK (btrim(password) <> '')
 );
-CREATE TABLE "libur_kalender" (
-	"libur_id" bigserial PRIMARY KEY,
-	"tanggal_libur" date NOT NULL CONSTRAINT "libur_kalender_tanggal_libur_key" UNIQUE,
-	"keterangan_libur" text NOT NULL
+
+DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
+CREATE TRIGGER trg_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- TABLE: libur_kalender
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS libur_kalender (
+  libur_id BIGSERIAL PRIMARY KEY,
+  tanggal_libur DATE NOT NULL,
+  keterangan_libur TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT uq_libur_kalender_tanggal UNIQUE (tanggal_libur)
 );
-CREATE TABLE "shipments" (
-	"shipment_id" bigserial PRIMARY KEY,
-	"area_id" varchar(20) NOT NULL,
-	"nik_kerja" varchar(30),
-	"is_freelance" boolean DEFAULT false NOT NULL,
-	"nama_freelance" varchar(150),
-	"tanggal_shipment" date NOT NULL,
-	"shipment_code" varchar(30) NOT NULL,
-	"jam_berangkat" time,
-	"jam_pulang" time,
-	"jumlah_toko" integer DEFAULT 0 NOT NULL,
-	"terkirim" integer DEFAULT 0 NOT NULL,
-	"gagal" integer GENERATED ALWAYS AS ((jumlah_toko - terkirim)) STORED,
-	"alasan" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "shipments_alasan_null_when_no_failure_check" CHECK (((gagal <> 0) OR (alasan IS NULL))),
-	CONSTRAINT "shipments_code_backend_status_check" CHECK ((((shipment_code)::text ~ '^[0-9]{10}$'::text) OR ((shipment_code)::text = ANY ((ARRAY['Sakit'::character varying, 'Izin'::character varying, 'Alpha'::character varying, 'Cuti'::character varying, 'SO'::character varying, 'Service'::character varying, 'Loading Sore'::character varying, 'Libur Nasional'::character varying, 'Kirim Ulang'::character varying, 'Kiur Unit'::character varying, 'Standby'::character varying])::text[])))),
-	CONSTRAINT "shipments_jumlah_toko_check" CHECK ((jumlah_toko >= 0)),
-	CONSTRAINT "shipments_regular_freelance_check" CHECK ((((is_freelance = false) AND (nik_kerja IS NOT NULL) AND (nama_freelance IS NULL)) OR ((is_freelance = true) AND (nik_kerja IS NULL) AND (nama_freelance IS NOT NULL)))),
-	CONSTRAINT "shipments_terkirim_check" CHECK ((terkirim >= 0)),
-	CONSTRAINT "shipments_terkirim_max_check" CHECK ((terkirim <= jumlah_toko))
+
+DROP TRIGGER IF EXISTS trg_libur_kalender_updated_at ON libur_kalender;
+CREATE TRIGGER trg_libur_kalender_updated_at
+BEFORE UPDATE ON libur_kalender
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- TABLE: shipments
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS shipments (
+  shipment_id BIGSERIAL PRIMARY KEY,
+  area_id BIGINT NOT NULL,
+  user_id BIGINT NULL,
+  is_freelance BOOLEAN NULL DEFAULT FALSE,
+  nama_freelance TEXT NULL,
+  tanggal_shipment DATE NULL,
+  shipment_code VARCHAR(30) NOT NULL,
+  jam_berangkat TIME NULL,
+  jam_pulang TIME NULL,
+  jumlah_toko INTEGER NULL,
+  terkirim INTEGER NULL,
+  gagal INTEGER NULL,
+  alasan TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fk_shipments_area
+    FOREIGN KEY (area_id)
+    REFERENCES area(area_id)
+    ON UPDATE CASCADE
+    ON DELETE RESTRICT,
+
+  CONSTRAINT fk_shipments_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(user_id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+
+  CONSTRAINT chk_shipments_code_not_empty CHECK (btrim(shipment_code) <> ''),
+  CONSTRAINT chk_shipments_jumlah_toko_non_negative CHECK (jumlah_toko IS NULL OR jumlah_toko >= 0),
+  CONSTRAINT chk_shipments_terkirim_non_negative CHECK (terkirim IS NULL OR terkirim >= 0),
+  CONSTRAINT chk_shipments_gagal_non_negative CHECK (gagal IS NULL OR gagal >= 0),
+  CONSTRAINT chk_shipments_total_result_not_exceed_jumlah_toko
+    CHECK (
+      jumlah_toko IS NULL
+      OR (COALESCE(terkirim, 0) + COALESCE(gagal, 0)) <= jumlah_toko
+    ),
+  CONSTRAINT chk_shipments_regular_or_freelance
+    CHECK (
+      (COALESCE(is_freelance, FALSE) = FALSE AND user_id IS NOT NULL AND nama_freelance IS NULL)
+      OR
+      (is_freelance = TRUE AND user_id IS NULL AND nama_freelance IS NOT NULL AND btrim(nama_freelance) <> '')
+    )
 );
-CREATE TABLE "users" (
-	"nik_kerja" varchar(30) PRIMARY KEY,
-	"area_id" varchar(20),
-	"nama_lengkap" varchar(150) NOT NULL,
-	"jabatan" user_jabatan_enum NOT NULL,
-	"user_role" user_role_enum DEFAULT 'regular' NOT NULL,
-	"username" varchar(100) NOT NULL CONSTRAINT "users_username_key" UNIQUE,
-	"password" text NOT NULL,
-	"is_active" boolean DEFAULT true NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+
+DROP TRIGGER IF EXISTS trg_shipments_updated_at ON shipments;
+CREATE TRIGGER trg_shipments_updated_at
+BEFORE UPDATE ON shipments
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- TABLE: kunci_shipment
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS kunci_shipment (
+  kunci_id BIGSERIAL PRIMARY KEY,
+  area_id BIGINT NULL,
+  user_id BIGINT NULL,
+  tanggal_awal DATE NOT NULL,
+  tanggal_akhir DATE NOT NULL,
+  keterangan_kunci TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT fk_kunci_shipment_area
+    FOREIGN KEY (area_id)
+    REFERENCES area(area_id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+
+  CONSTRAINT fk_kunci_shipment_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(user_id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL,
+
+  CONSTRAINT chk_kunci_shipment_tanggal_valid CHECK (tanggal_awal <= tanggal_akhir),
+  CONSTRAINT chk_kunci_shipment_keterangan_not_empty CHECK (btrim(keterangan_kunci) <> '')
 );
-CREATE UNIQUE INDEX "area_pkey" ON "area" ("area_id");
-CREATE INDEX "idx_area_area_timezone" ON "area" ("area_timezone");
-CREATE INDEX "idx_kunci_shipment_area_range" ON "kunci_shipment" ("area_id","tanggal_awal","tanggal_akhir");
-CREATE INDEX "idx_kunci_shipment_nik" ON "kunci_shipment" ("nik_kerja");
-CREATE INDEX "idx_kunci_shipment_range" ON "kunci_shipment" ("tanggal_awal","tanggal_akhir");
-CREATE UNIQUE INDEX "kunci_shipment_pkey" ON "kunci_shipment" ("kunci_id");
-CREATE UNIQUE INDEX "libur_kalender_pkey" ON "libur_kalender" ("libur_id");
-CREATE UNIQUE INDEX "libur_kalender_tanggal_libur_key" ON "libur_kalender" ("tanggal_libur");
-CREATE INDEX "shipments_area_date_idx" ON "shipments" ("area_id","tanggal_shipment");
-CREATE UNIQUE INDEX "shipments_freelance_unique_per_day" ON "shipments" ("area_id","lower((nama_freelance)::text)","tanggal_shipment");
-CREATE INDEX "shipments_nik_date_idx" ON "shipments" ("nik_kerja","tanggal_shipment");
-CREATE UNIQUE INDEX "shipments_pkey" ON "shipments" ("shipment_id");
-CREATE UNIQUE INDEX "shipments_regular_unique_per_day" ON "shipments" ("nik_kerja","tanggal_shipment");
-CREATE INDEX "users_area_role_idx" ON "users" ("area_id","user_role","is_active");
-CREATE UNIQUE INDEX "users_pkey" ON "users" ("nik_kerja");
-CREATE UNIQUE INDEX "users_username_key" ON "users" ("username");
-ALTER TABLE "kunci_shipment" ADD CONSTRAINT "kunci_shipment_area_id_fkey" FOREIGN KEY ("area_id") REFERENCES "area"("area_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "kunci_shipment" ADD CONSTRAINT "kunci_shipment_nik_kerja_fkey" FOREIGN KEY ("nik_kerja") REFERENCES "users"("nik_kerja") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "shipments" ADD CONSTRAINT "shipments_area_id_fkey" FOREIGN KEY ("area_id") REFERENCES "area"("area_id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "shipments" ADD CONSTRAINT "shipments_nik_kerja_fkey" FOREIGN KEY ("nik_kerja") REFERENCES "users"("nik_kerja") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "users" ADD CONSTRAINT "users_area_id_fkey" FOREIGN KEY ("area_id") REFERENCES "area"("area_id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+DROP TRIGGER IF EXISTS trg_kunci_shipment_updated_at ON kunci_shipment;
+CREATE TRIGGER trg_kunci_shipment_updated_at
+BEFORE UPDATE ON kunci_shipment
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+-- =========================================================
+-- UNIQUE INDEX
+-- =========================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_area_area_code_lower
+ON area (lower(area_code));
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_area_spreadsheet_id
+ON area (spreadsheet_id)
+WHERE spreadsheet_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_nik_kerja_lower
+ON users (lower(nik_kerja));
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username_lower
+ON users (lower(username));
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_shipments_regular_user_date
+ON shipments (user_id, tanggal_shipment)
+WHERE user_id IS NOT NULL AND tanggal_shipment IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_shipments_freelance_area_name_date
+ON shipments (area_id, lower(nama_freelance), tanggal_shipment)
+WHERE is_freelance = TRUE
+  AND nama_freelance IS NOT NULL
+  AND tanggal_shipment IS NOT NULL;
+
+-- =========================================================
+-- NORMAL INDEX
+-- =========================================================
+
+CREATE INDEX IF NOT EXISTS idx_area_is_active ON area (is_active);
+CREATE INDEX IF NOT EXISTS idx_area_timezone ON area (area_timezone);
+
+CREATE INDEX IF NOT EXISTS idx_users_area_id ON users (area_id);
+CREATE INDEX IF NOT EXISTS idx_users_area_active ON users (area_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users (user_role);
+CREATE INDEX IF NOT EXISTS idx_users_jabatan ON users (jabatan);
+
+CREATE INDEX IF NOT EXISTS idx_libur_kalender_tanggal ON libur_kalender (tanggal_libur);
+
+CREATE INDEX IF NOT EXISTS idx_shipments_area_id ON shipments (area_id);
+CREATE INDEX IF NOT EXISTS idx_shipments_user_id ON shipments (user_id);
+CREATE INDEX IF NOT EXISTS idx_shipments_tanggal ON shipments (tanggal_shipment);
+CREATE INDEX IF NOT EXISTS idx_shipments_area_tanggal ON shipments (area_id, tanggal_shipment);
+CREATE INDEX IF NOT EXISTS idx_shipments_user_tanggal ON shipments (user_id, tanggal_shipment);
+CREATE INDEX IF NOT EXISTS idx_shipments_area_user_tanggal ON shipments (area_id, user_id, tanggal_shipment);
+CREATE INDEX IF NOT EXISTS idx_shipments_code ON shipments (shipment_code);
+CREATE INDEX IF NOT EXISTS idx_shipments_freelance ON shipments (is_freelance);
+CREATE INDEX IF NOT EXISTS idx_shipments_aktif_10_digit ON shipments (area_id, tanggal_shipment)
+WHERE shipment_code ~ '^[0-9]{10}$';
+CREATE INDEX IF NOT EXISTS idx_shipments_non_aktif ON shipments (area_id, tanggal_shipment, shipment_code)
+WHERE shipment_code !~ '^[0-9]{10}$';
+
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_area_id ON kunci_shipment (area_id);
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_user_id ON kunci_shipment (user_id);
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_tanggal ON kunci_shipment (tanggal_awal, tanggal_akhir);
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_area_tanggal ON kunci_shipment (area_id, tanggal_awal, tanggal_akhir);
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_user_tanggal ON kunci_shipment (user_id, tanggal_awal, tanggal_akhir);
+CREATE INDEX IF NOT EXISTS idx_kunci_shipment_range_gist ON kunci_shipment
+USING gist (daterange(tanggal_awal, tanggal_akhir, '[]'));
+
+COMMIT;

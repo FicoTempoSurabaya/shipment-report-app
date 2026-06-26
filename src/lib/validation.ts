@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { normalizeDateOnlyInput } from "@/lib/date";
+import { AREA_TIMEZONE as AREA_TIMEZONE_VALUES } from "@/types/area";
 import { FAILURE_REASONS, SHIPMENT_STATUS } from "@/types/shipment";
 import {
   USER_JABATAN as USER_JABATAN_VALUES,
@@ -47,11 +48,12 @@ export const updateProfileSchema = z.object({
 });
 
 export const areaSchema = z.object({
-  area_id: z.string().trim().min(1, "Area ID wajib diisi"),
+  area_code: z.string().trim().min(1, "Kode area wajib diisi"),
   nama_area: z.string().trim().min(1, "Nama area wajib diisi"),
-  sla_area: z.coerce.number().int().min(0, "SLA area minimal 0"),
+  sla_area: z.coerce.number().int().min(1, "SLA area minimal 1"),
   spreadsheet_id: z.string().nullable().optional(),
   spreadsheet_url: z.string().nullable().optional(),
+  area_timezone: z.enum(AREA_TIMEZONE_VALUES).default("Asia/Jakarta"),
   is_active: z.boolean().default(true),
 });
 
@@ -170,7 +172,7 @@ export const adminKunciShipmentSchema = z
     nik_kerja: nullableTrimmedStringSchema,
     tanggal_awal: dateStringSchema,
     tanggal_akhir: dateStringSchema,
-    keterangan_kunci: nullableTrimmedStringSchema,
+    keterangan_kunci: nullableTrimmedStringSchema.default("Dikunci oleh admin"),
   })
   .superRefine((value, ctx) => {
     if (value.tanggal_awal > value.tanggal_akhir) {
@@ -211,6 +213,7 @@ export const adminCreateRegularUserSchema = z.object({
 });
 
 export const adminUpdateRegularUserSchema = z.object({
+  user_id: z.string().trim().min(1, "User ID wajib diisi"),
   nik_kerja: z.string().trim().min(1, "NIK kerja wajib diisi"),
   nama_lengkap: z.string().trim().min(1, "Nama lengkap wajib diisi"),
   jabatan: z.enum(USER_JABATAN_VALUES),

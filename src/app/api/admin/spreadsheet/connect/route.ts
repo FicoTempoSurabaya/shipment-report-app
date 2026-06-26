@@ -6,6 +6,7 @@ import { createAreaSpreadsheetViaAppsScript } from "@/lib/google-apps-script-con
 
 type AreaSpreadsheetRow = {
   area_id: string;
+  area_code: string;
   nama_area: string;
   spreadsheet_id: string | null;
   spreadsheet_url: string | null;
@@ -89,13 +90,14 @@ export async function POST() {
 
     const existingRows = await query<AreaSpreadsheetRow>`
       SELECT
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         spreadsheet_id,
         spreadsheet_url,
         COALESCE(area_timezone, 'Asia/Jakarta') AS area_timezone
       FROM area
-      WHERE area_id = ${sessionResult.areaId}
+      WHERE area_id = ${sessionResult.areaId}::BIGINT
         AND is_active = TRUE
       LIMIT 1
     `;
@@ -124,6 +126,7 @@ export async function POST() {
 
     const connectedSpreadsheet = await createAreaSpreadsheetViaAppsScript({
       area_id: existingArea.area_id,
+      area_code: existingArea.area_code,
       area_name: existingArea.nama_area,
       area_timezone: existingArea.area_timezone,
     });
@@ -133,10 +136,11 @@ export async function POST() {
       SET
         spreadsheet_id = ${connectedSpreadsheet.spreadsheet_id},
         spreadsheet_url = ${connectedSpreadsheet.spreadsheet_url}
-      WHERE area_id = ${existingArea.area_id}
+      WHERE area_id = ${existingArea.area_id}::BIGINT
         AND is_active = TRUE
       RETURNING
-        area_id,
+        area_id::TEXT AS area_id,
+        area_code,
         nama_area,
         spreadsheet_id,
         spreadsheet_url,

@@ -39,8 +39,10 @@ export async function signSession(payload: AuthSession): Promise<string> {
   const maxAgeSeconds = getCookieMaxAgeSeconds();
 
   return new SignJWT({
+    user_id: payload.user_id,
     nik_kerja: payload.nik_kerja,
     area_id: payload.area_id,
+    area_code: payload.area_code,
     nama_lengkap: payload.nama_lengkap,
     username: payload.username,
     user_role: payload.user_role,
@@ -56,6 +58,7 @@ export async function verifySessionToken(token: string): Promise<AuthSession | n
     const { payload } = await jwtVerify(token, getJwtSecret());
 
     if (
+      typeof payload.user_id !== "string" ||
       typeof payload.nik_kerja !== "string" ||
       typeof payload.nama_lengkap !== "string" ||
       typeof payload.username !== "string" ||
@@ -66,13 +69,15 @@ export async function verifySessionToken(token: string): Promise<AuthSession | n
 
     const role = payload.user_role as UserRole;
 
-    if (!["regular", "admin", "superadmin"].includes(role)) {
+    if (!["regular", "admin", "super_admin"].includes(role)) {
       return null;
     }
 
     return {
+      user_id: payload.user_id,
       nik_kerja: payload.nik_kerja,
       area_id: typeof payload.area_id === "string" ? payload.area_id : null,
+      area_code: typeof payload.area_code === "string" ? payload.area_code : null,
       nama_lengkap: payload.nama_lengkap,
       username: payload.username,
       user_role: role,

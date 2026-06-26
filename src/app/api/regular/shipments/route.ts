@@ -15,6 +15,7 @@ import type { ShipmentFailureReason, ShipmentStatus } from "@/types/shipment";
 type ShipmentRow = {
   shipment_id: number;
   area_id: string;
+  user_id: string | null;
   nik_kerja: string;
   tanggal_shipment: string;
   status_shipment: ShipmentStatus;
@@ -111,7 +112,7 @@ async function validateRegularSession() {
 async function getExistingRegularShipment(params: {
   shipmentId: number;
   areaId: string;
-  nikKerja: string;
+  userId: string;
 }) {
   const rows = await query<ExistingRegularShipmentRow>`
     SELECT
@@ -119,8 +120,8 @@ async function getExistingRegularShipment(params: {
       tanggal_shipment::TEXT AS tanggal_shipment
     FROM shipments
     WHERE shipment_id = ${params.shipmentId}
-      AND area_id = ${params.areaId}
-      AND nik_kerja = ${params.nikKerja}
+      AND area_id = ${params.areaId}::BIGINT
+      AND user_id = ${params.userId}::BIGINT
       AND is_freelance = FALSE
     LIMIT 1
   `;
@@ -131,12 +132,12 @@ async function getExistingRegularShipment(params: {
 async function validateRegularEditableDate(params: {
   tanggalShipment: string;
   areaId: string;
-  nikKerja: string;
+  userId: string;
   mode: "create" | "update_existing";
 }) {
   const lock = await getRegularShipmentLock({
     areaId: params.areaId,
-    nikKerja: params.nikKerja,
+    userId: params.userId,
     tanggalShipment: params.tanggalShipment,
   });
 
@@ -268,7 +269,7 @@ export async function POST(request: Request) {
     const dateResult = await validateRegularEditableDate({
       tanggalShipment: payload.tanggal_shipment,
       areaId: sessionResult.session.area_id,
-      nikKerja: sessionResult.session.nik_kerja,
+      userId: sessionResult.session.user_id,
       mode: "create",
     });
 
@@ -282,7 +283,7 @@ export async function POST(request: Request) {
     const rows = await query<ShipmentRow>`
       INSERT INTO shipments (
         area_id,
-        nik_kerja,
+        user_id,
         is_freelance,
         nama_freelance,
         tanggal_shipment,
@@ -291,11 +292,12 @@ export async function POST(request: Request) {
         jam_pulang,
         jumlah_toko,
         terkirim,
+        gagal,
         alasan
       )
       VALUES (
-        ${sessionResult.session.area_id},
-        ${sessionResult.session.nik_kerja},
+        ${sessionResult.session.area_id}::BIGINT,
+        ${sessionResult.session.user_id}::BIGINT,
         FALSE,
         NULL,
         ${payload.tanggal_shipment}::DATE,
@@ -304,12 +306,14 @@ export async function POST(request: Request) {
         ${payload.jam_pulang ?? null}::TIME,
         ${payload.jumlah_toko},
         ${payload.terkirim},
+        ${payload.jumlah_toko - payload.terkirim},
         ${alasanForDb}
       )
       RETURNING
         shipment_id,
-        area_id,
-        nik_kerja,
+        area_id::TEXT AS area_id,
+        user_id::TEXT AS user_id,
+        ${sessionResult.session.nik_kerja}::TEXT AS nik_kerja,
         tanggal_shipment::TEXT AS tanggal_shipment,
         CASE
           WHEN shipment_code ~ '^[0-9]{10}$' THEN 'Aktif'
@@ -429,7 +433,7 @@ export async function PUT(request: Request) {
     const existingShipment = await getExistingRegularShipment({
       shipmentId: payload.shipment_id,
       areaId: sessionResult.session.area_id,
-      nikKerja: sessionResult.session.nik_kerja,
+      userId: sessionResult.session.user_id,
     });
 
     if (!existingShipment) {
@@ -459,7 +463,7 @@ export async function PUT(request: Request) {
     const dateResult = await validateRegularEditableDate({
       tanggalShipment: payload.tanggal_shipment,
       areaId: sessionResult.session.area_id,
-      nikKerja: sessionResult.session.nik_kerja,
+      userId: sessionResult.session.user_id,
       mode: "update_existing",
     });
 
@@ -478,15 +482,17 @@ export async function PUT(request: Request) {
         jam_pulang = ${payload.jam_pulang ?? null}::TIME,
         jumlah_toko = ${payload.jumlah_toko},
         terkirim = ${payload.terkirim},
+        gagal = ${payload.jumlah_toko - payload.terkirim},
         alasan = ${alasanForDb}
       WHERE shipment_id = ${payload.shipment_id}
-        AND nik_kerja = ${sessionResult.session.nik_kerja}
-        AND area_id = ${sessionResult.session.area_id}
+        AND user_id = ${sessionResult.session.user_id}::BIGINT
+        AND area_id = ${sessionResult.session.area_id}::BIGINT
         AND is_freelance = FALSE
       RETURNING
         shipment_id,
-        area_id,
-        nik_kerja,
+        area_id::TEXT AS area_id,
+        user_id::TEXT AS user_id,
+        ${sessionResult.session.nik_kerja}::TEXT AS nik_kerja,
         tanggal_shipment::TEXT AS tanggal_shipment,
         CASE
           WHEN shipment_code ~ '^[0-9]{10}$' THEN 'Aktif'
