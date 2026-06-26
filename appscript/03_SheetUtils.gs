@@ -37,7 +37,60 @@ function setraIsBlankBusinessRow_(rowObject, businessHeaders) {
   });
 }
 
-function setraNormalizeForSnapshot_(value) {
+function setraNormalizeDateForSnapshot_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
+  }
+
+  const text = setraNormalizeText_(value);
+  if (!text) return '';
+
+  const isoMatch = text.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (isoMatch) {
+    return isoMatch[1] + '-' + String(isoMatch[2]).padStart(2, '0') + '-' + String(isoMatch[3]).padStart(2, '0');
+  }
+
+  const idMatch = text.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+  if (idMatch) {
+    return idMatch[3] + '-' + String(idMatch[2]).padStart(2, '0') + '-' + String(idMatch[1]).padStart(2, '0');
+  }
+
+  return text;
+}
+
+function setraNormalizeTimeForSnapshot_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, setraGetTimezone_(), 'HH:mm:ss');
+  }
+
+  if (typeof value === 'number' && isFinite(value)) {
+    const totalSeconds = Math.round((value % 1) * 24 * 60 * 60);
+    const hours = Math.floor(totalSeconds / 3600) % 24;
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+  }
+
+  const text = setraNormalizeText_(value);
+  if (!text) return '';
+
+  const match = text.match(/^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/);
+  if (match) {
+    return String(match[1]).padStart(2, '0') + ':' + String(match[2]).padStart(2, '0') + ':' + String(match[3] || '0').padStart(2, '0');
+  }
+
+  return text;
+}
+
+function setraNormalizeForSnapshot_(value, header) {
+  if (header === 'tanggal_shipment' || String(header || '').indexOf('tanggal_') === 0) {
+    return setraNormalizeDateForSnapshot_(value);
+  }
+
+  if (header === 'jam_berangkat' || header === 'jam_pulang') {
+    return setraNormalizeTimeForSnapshot_(value);
+  }
+
   if (value instanceof Date) {
     return Utilities.formatDate(value, setraGetTimezone_(), 'yyyy-MM-dd');
   }
@@ -49,7 +102,7 @@ function setraNormalizeForSnapshot_(value) {
 
 function setraBuildSnapshot_(rowObject, businessHeaders) {
   return businessHeaders.map(function (header) {
-    return setraNormalizeForSnapshot_(rowObject[header]);
+    return setraNormalizeForSnapshot_(rowObject[header], header);
   }).join('|');
 }
 

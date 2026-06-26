@@ -51,8 +51,38 @@ function setraPrepareShipmentsRuntime_() {
     setraApplyShipmentCodeDropdownForRange_(range);
   }
 
+  setraRenumberShipments_();
   setraUpdateShipmentDeleteColors_();
   setraHideTechnicalColumns_(SETRA.SHEETS.SHIPMENTS, SETRA.TECHNICAL_HEADERS.SHIPMENTS);
+}
+
+function setraRenumberShipments_() {
+  const sheet = setraGetSheet_(SETRA.SHEETS.SHIPMENTS);
+  const headers = setraGetHeaders_(sheet);
+  const map = setraGetHeaderMap_(sheet);
+  const lastRow = setraGetLastDataRow_(sheet);
+  if (!map.no || lastRow < SETRA.DATA_START_ROW) return;
+
+  const rowCount = lastRow - SETRA.DATA_START_ROW + 1;
+  const values = sheet.getRange(SETRA.DATA_START_ROW, 1, rowCount, headers.length).getValues();
+  const numbers = [];
+  let sequence = 1;
+
+  values.forEach(function (rowValues) {
+    const obj = {};
+    headers.forEach(function (header, idx) { if (header) obj[header] = rowValues[idx]; });
+    const hasShipmentId = map.__shipment_id && setraNormalizeText_(rowValues[map.__shipment_id - 1]);
+    const hasBusinessData = !setraIsBlankBusinessRow_(obj, SETRA.BUSINESS_HEADERS.SHIPMENTS);
+
+    if (hasShipmentId || hasBusinessData) {
+      numbers.push([sequence]);
+      sequence += 1;
+    } else {
+      numbers.push(['']);
+    }
+  });
+
+  sheet.getRange(SETRA.DATA_START_ROW, map.no, rowCount, 1).setValues(numbers);
 }
 
 function setraHandleShipmentsOnEdit_(e) {
@@ -332,6 +362,7 @@ function setraMergePulledShipments_(rows) {
     const line = headers.map(function (header) { return header ? setraValueForSheet_(header, row[header]) : ''; });
     if (map.__sync_action) line[map.__sync_action - 1] = SETRA.SYNC_ACTION.SKIP;
     if (map.__sync_status) line[map.__sync_status - 1] = SETRA.SYNC_STATUS.SYNCED;
+    if (map.__sync_message) line[map.__sync_message - 1] = '';
     if (map.__last_synced_at) line[map.__last_synced_at - 1] = setraNowIso_();
     if (map.__sync_snapshot) line[map.__sync_snapshot - 1] = setraBuildSnapshot_(row, SETRA.BUSINESS_HEADERS.SHIPMENTS);
     if (map.Hapus) line[map.Hapus - 1] = false;

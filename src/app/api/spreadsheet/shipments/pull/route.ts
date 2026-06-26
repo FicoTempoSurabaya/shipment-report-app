@@ -140,9 +140,9 @@ export async function GET(request: Request) {
         __user_id: row.user_id ?? "",
         __is_freelance: row.is_freelance,
         __shipment_code_type: shipmentCodeType,
-        __sync_action: "UPSERT",
+        __sync_action: "SKIP",
         __sync_status: "SYNCED",
-        __sync_message: "Data dari database",
+        __sync_message: "",
         __last_synced_at: fetchedAt,
         __sync_snapshot: row.__sync_snapshot,
       };
