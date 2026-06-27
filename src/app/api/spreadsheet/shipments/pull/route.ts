@@ -31,7 +31,7 @@ function normalizeLimit(value: string | null): number {
     return 500;
   }
 
-  return Math.min(parsed, 1000);
+  return Math.min(parsed, 5000);
 }
 
 function parseCursor(value: string | null) {
@@ -39,14 +39,26 @@ function parseCursor(value: string | null) {
 
   if (!text) {
     return {
+      mode: "updated_at" as const,
       updatedAt: "",
       shipmentId: "0",
+    };
+  }
+
+  if (text.startsWith("ID||")) {
+    const shipmentId = text.slice(4);
+
+    return {
+      mode: "shipment_id" as const,
+      updatedAt: "",
+      shipmentId: /^\d+$/.test(shipmentId) ? shipmentId : "0",
     };
   }
 
   const [updatedAt = "", shipmentId = "0"] = text.split("||");
 
   return {
+    mode: "updated_at" as const,
     updatedAt,
     shipmentId: /^\d+$/.test(shipmentId) ? shipmentId : "0",
   };
@@ -65,8 +77,51 @@ export async function GET(request: Request) {
     const limit = normalizeLimit(url.searchParams.get("limit"));
     const cursor = parseCursor(url.searchParams.get("cursor"));
     const fetchedAt = new Date().toISOString();
+    const queryLimit = limit + 1;
+    const useShipmentIdCursor = cursor.mode === "shipment_id";
 
-    const rows = await query<ShipmentPullDbRow>`
+    const rowsRaw = useShipmentIdCursor
+      ? await query<ShipmentPullDbRow>`
+      SELECT
+        s.shipment_id::TEXT AS shipment_id,
+        s.area_id::TEXT AS area_id,
+        s.user_id::TEXT AS user_id,
+        u.nik_kerja,
+        u.nama_lengkap,
+        s.is_freelance,
+        s.nama_freelance,
+        s.tanggal_shipment::TEXT AS tanggal_shipment,
+        s.shipment_code,
+        s.jam_berangkat::TEXT AS jam_berangkat,
+        s.jam_pulang::TEXT AS jam_pulang,
+        s.jumlah_toko,
+        s.terkirim,
+        s.gagal,
+        COALESCE(s.alasan, '') AS alasan,
+        CONCAT_WS('|',
+          s.area_id::TEXT,
+          CASE WHEN s.is_freelance THEN 'freelance' ELSE 'regular' END,
+          COALESCE(u.nik_kerja, ''),
+          CASE WHEN s.is_freelance THEN '' ELSE COALESCE(u.nama_lengkap, '') END,
+          CASE WHEN s.is_freelance THEN COALESCE(s.nama_freelance, '') ELSE '' END,
+          s.tanggal_shipment::TEXT,
+          s.shipment_code,
+          COALESCE(s.jam_berangkat::TEXT, ''),
+          COALESCE(s.jam_pulang::TEXT, ''),
+          s.jumlah_toko::TEXT,
+          s.terkirim::TEXT,
+          s.gagal::TEXT,
+          COALESCE(s.alasan, '')
+        ) AS __sync_snapshot,
+        s.updated_at::TEXT AS __updated_at
+      FROM shipments s
+      LEFT JOIN users u ON u.user_id = s.user_id
+      WHERE s.area_id = ${auth.context.areaId}::BIGINT
+        AND s.shipment_id > ${cursor.shipmentId}::BIGINT
+      ORDER BY s.shipment_id ASC
+      LIMIT ${queryLimit}
+    `
+      : await query<ShipmentPullDbRow>`
       SELECT
         s.shipment_id::TEXT AS shipment_id,
         s.area_id::TEXT AS area_id,
@@ -115,8 +170,18 @@ export async function GET(request: Request) {
           )
         )
       ORDER BY s.updated_at ASC, s.shipment_id ASC
-      LIMIT ${limit}
+      LIMIT ${queryLimit}
     `;
+
+    const hasMore = rowsRaw.length > limit;
+    const rows = hasMore ? rowsRaw.slice(0, limit) : rowsRaw;
+
+    const totalRows = await query<{ total_count: string }>`
+      SELECT COUNT(*)::TEXT AS total_count
+      FROM shipments
+      WHERE area_id = ${auth.context.areaId}::BIGINT
+    `;
+    const totalCount = Number(totalRows[0]?.total_count ?? 0);
 
     const sheetRows = rows.map((row) => {
       const statusKerja = row.is_freelance ? "freelance" : "regular";
@@ -149,13 +214,20 @@ export async function GET(request: Request) {
     });
 
     const lastRow = rows[rows.length - 1];
-    const nextCursor = rows.length === limit && lastRow ? `${lastRow.__updated_at}||${lastRow.shipment_id}` : "";
+    const nextCursor = hasMore && lastRow
+      ? useShipmentIdCursor
+        ? `ID||${lastRow.shipment_id}`
+        : `${lastRow.__updated_at}||${lastRow.shipment_id}`
+      : "";
 
     return NextResponse.json({
       ok: true,
       message: "Data shipments berhasil diambil dari database",
       rows: sheetRows,
       next_cursor: nextCursor,
+      has_more: hasMore,
+      total_count: totalCount,
+      batch_limit: limit,
       fetched_at: fetchedAt,
     });
   } catch (error) {

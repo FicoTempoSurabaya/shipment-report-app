@@ -335,22 +335,35 @@ function setraShipmentsUpdating() {
     setraAssertHeaders_(sheet, SETRA.REQUIRED_HEADERS.SHIPMENTS);
 
     const removed = setraRemoveDeletedDbShipmentsBatch_();
-    const cursor = setraGetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_CURSOR, '');
-    const lastFetchAt = setraGetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_LAST_FETCH_AT, '');
+    let cursor = setraGetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_CURSOR, '');
+    let lastFetchAt = setraGetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_LAST_FETCH_AT, '');
+    const localCountBefore = setraCountLocalShipmentIds_(sheet);
 
-    const response = setraGetJson_(SETRA.ENDPOINTS.SHIPMENTS_PULL, {
-      area_id: setraGetAreaId_(),
-      spreadsheet_id: setraGetSpreadsheetId_(),
-      updated_after: cursor ? '' : lastFetchAt,
-      cursor: cursor,
-      limit: SETRA.MAX_BATCH_ROWS,
-    });
+    let response = setraFetchShipmentPullBatch_(cursor, lastFetchAt);
+    let rows = Array.isArray(response.rows) ? response.rows : [];
+    let totalCount = Number(response.total_count || 0);
+    let recoveredCheckpoint = false;
 
-    const rows = Array.isArray(response.rows) ? response.rows : [];
+    if (rows.length === 0 && !cursor && lastFetchAt && totalCount > localCountBefore) {
+      const maxLocalShipmentId = setraGetMaxLocalShipmentId_(sheet);
+      cursor = maxLocalShipmentId ? 'ID||' + maxLocalShipmentId : '';
+      lastFetchAt = '';
+      setraSetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_CURSOR, cursor, 'cursor', 'Cursor lanjutan Updating shipments DB -> Sheet.');
+      setraSetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_LAST_FETCH_AT, '', 'datetime', 'Checkpoint terakhir Updating shipments.');
+      setraSetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_HAS_MORE, 'TRUE', 'boolean', 'Checkpoint direset karena jumlah DB lebih besar dari sheet.');
+
+      response = setraFetchShipmentPullBatch_(cursor, lastFetchAt);
+      rows = Array.isArray(response.rows) ? response.rows : [];
+      totalCount = Number(response.total_count || totalCount || 0);
+      recoveredCheckpoint = true;
+    }
+
     const counts = setraMergePulledShipments_(rows);
     const nextCursor = String(response.next_cursor || '');
+    const hasMore = Boolean(response.has_more || nextCursor);
 
-    if (nextCursor) {
+    if (hasMore) {
+      if (!nextCursor) throw new Error('Backend mengirim has_more=TRUE tetapi next_cursor kosong. Pagination dihentikan untuk mencegah checkpoint salah.');
       setraSetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_CURSOR, nextCursor, 'cursor', 'Cursor lanjutan Updating shipments DB -> Sheet.');
       setraSetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_HAS_MORE, 'TRUE', 'boolean', 'Masih ada data DB yang belum ditarik.');
     } else {
@@ -363,11 +376,14 @@ function setraShipmentsUpdating() {
 
     setraShowResultDialog_('Shipments Updating', [
       ['Data DB diterima', rows.length],
+      ['Total shipment DB area', totalCount || '-'],
+      ['Shipment ID di sheet sebelum update', localCountBefore],
       ['Baris baru di spreadsheet', counts.created],
       ['Baris diperbarui', counts.updated],
       ['Baris konflik/lokal pending', counts.conflict],
       ['Shipment ID hilang dari DB dihapus dari sheet', removed],
-      ['Masih ada batch berikutnya', nextCursor ? 'YA' : 'TIDAK'],
+      ['Checkpoint direset otomatis', recoveredCheckpoint ? 'YA' : 'TIDAK'],
+      ['Masih ada batch berikutnya', hasMore ? 'YA' : 'TIDAK'],
     ], rows.length === 0 && removed === 0 ? 'Tidak ada data baru dari database.' : 'Updating selesai. Klik lagi untuk mengambil batch berikutnya jika masih ada.');
   } catch (error) {
     setraAppendSyncLog_(SETRA.SHEETS.SHIPMENTS, 'updating', 'db_to_sheet', 0, 0, 1, 'FAILED', error.message || String(error));
@@ -375,6 +391,44 @@ function setraShipmentsUpdating() {
   } finally {
     lock.releaseLock();
   }
+}
+
+function setraFetchShipmentPullBatch_(cursor, lastFetchAt) {
+  return setraGetJson_(SETRA.ENDPOINTS.SHIPMENTS_PULL, {
+    area_id: setraGetAreaId_(),
+    spreadsheet_id: setraGetSpreadsheetId_(),
+    updated_after: cursor ? '' : lastFetchAt,
+    cursor: cursor,
+    limit: SETRA.MAX_BATCH_ROWS,
+  });
+}
+
+function setraCountLocalShipmentIds_(sheet) {
+  const map = setraGetHeaderMap_(sheet);
+  const lastRow = setraGetLastDataRow_(sheet);
+  if (lastRow < SETRA.DATA_START_ROW || !map.__shipment_id) return 0;
+
+  const values = sheet.getRange(SETRA.DATA_START_ROW, map.__shipment_id, lastRow - SETRA.DATA_START_ROW + 1, 1).getValues();
+  let count = 0;
+  values.forEach(function (row) {
+    if (setraNormalizeText_(row[0])) count += 1;
+  });
+  return count;
+}
+
+
+function setraGetMaxLocalShipmentId_(sheet) {
+  const map = setraGetHeaderMap_(sheet);
+  const lastRow = setraGetLastDataRow_(sheet);
+  if (lastRow < SETRA.DATA_START_ROW || !map.__shipment_id) return '';
+
+  const values = sheet.getRange(SETRA.DATA_START_ROW, map.__shipment_id, lastRow - SETRA.DATA_START_ROW + 1, 1).getValues();
+  let maxId = 0;
+  values.forEach(function (row) {
+    const id = Number(setraNormalizeText_(row[0]));
+    if (Number.isFinite(id) && id > maxId) maxId = id;
+  });
+  return maxId ? String(maxId) : '';
 }
 
 function setraMergePulledShipments_(rows) {
