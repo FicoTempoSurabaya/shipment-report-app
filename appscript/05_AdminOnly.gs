@@ -39,18 +39,25 @@ function setraPrepareShipmentsRuntime_() {
   const lastRow = Math.max(setraGetLastDataRow_(sheet), SETRA.DATA_START_ROW);
   const rowCount = Math.max(lastRow - SETRA.DATA_START_ROW + 1, 1);
 
+  setraFormatShipmentRows_(sheet, map, SETRA.DATA_START_ROW, rowCount);
+  setraFinalizeShipmentsAfterDataChange_();
+}
+
+function setraFormatShipmentRows_(sheet, map, rowStart, rowCount) {
+  if (!rowCount || rowCount < 1) return;
+
   if (map.Hapus) {
     try {
-      sheet.getRange(SETRA.DATA_START_ROW, map.Hapus, rowCount, 1).insertCheckboxes();
+      sheet.getRange(rowStart, map.Hapus, rowCount, 1).insertCheckboxes();
     } catch (error) {}
   }
 
   if (map.shipment_code) {
-    const range = sheet.getRange(SETRA.DATA_START_ROW, map.shipment_code, rowCount, 1);
-    range.setNumberFormat('@');
-    setraApplyShipmentCodeDropdownForRange_(range);
+    sheet.getRange(rowStart, map.shipment_code, rowCount, 1).setNumberFormat('@');
   }
+}
 
+function setraFinalizeShipmentsAfterDataChange_() {
   setraRenumberShipments_();
   setraUpdateShipmentDeleteColors_();
   setraHideTechnicalColumns_(SETRA.SHEETS.SHIPMENTS, SETRA.TECHNICAL_HEADERS.SHIPMENTS);
@@ -279,8 +286,42 @@ function setraUpdateShipmentDeleteColors_() {
   const map = setraGetHeaderMap_(sheet);
   const lastRow = setraGetLastDataRow_(sheet);
   if (lastRow < SETRA.DATA_START_ROW || !map.Hapus) return;
-  setraApplyDeleteStateForRows_(SETRA.DATA_START_ROW, lastRow);
+
+  const rowCount = lastRow - SETRA.DATA_START_ROW + 1;
+  const width = sheet.getLastColumn();
+  const checkedValues = sheet.getRange(SETRA.DATA_START_ROW, map.Hapus, rowCount, 1).getValues();
+  const checkedRows = [];
+
+  checkedValues.forEach(function (row, index) {
+    if (row[0] === true) checkedRows.push(SETRA.DATA_START_ROW + index);
+  });
+
+  setraColorShipmentRowsInGroups_(sheet, checkedRows, width, SETRA_SHIPMENTS.DELETE_CHECKED_BG, SETRA_SHIPMENTS.DELETE_CHECKED_FG);
 }
+
+function setraColorShipmentRowsInGroups_(sheet, rows, width, background, fontColor) {
+  if (!rows || rows.length === 0) return;
+
+  rows.sort(function (a, b) { return a - b; });
+  let startRow = rows[0];
+  let previousRow = rows[0];
+
+  for (let i = 1; i <= rows.length; i += 1) {
+    const row = rows[i];
+    if (row === previousRow + 1) {
+      previousRow = row;
+      continue;
+    }
+
+    sheet.getRange(startRow, 1, previousRow - startRow + 1, width)
+      .setBackground(background)
+      .setFontColor(fontColor);
+
+    startRow = row;
+    previousRow = row;
+  }
+}
+
 
 function setraShipmentsUpdating() {
   const lock = LockService.getDocumentLock();
@@ -292,7 +333,6 @@ function setraShipmentsUpdating() {
   try {
     const sheet = setraGetSheet_(SETRA.SHEETS.SHIPMENTS);
     setraAssertHeaders_(sheet, SETRA.REQUIRED_HEADERS.SHIPMENTS);
-    setraPrepareShipmentsRuntime_();
 
     const removed = setraRemoveDeletedDbShipmentsBatch_();
     const cursor = setraGetConfigValue_(SETRA.CONFIG_KEYS.SHIPMENTS_UPDATE_CURSOR, '');
@@ -343,6 +383,8 @@ function setraMergePulledShipments_(rows) {
   const map = setraGetHeaderMap_(sheet);
   const lastRow = setraGetLastDataRow_(sheet);
   const idToRow = {};
+  const updates = [];
+  const appends = [];
   let created = 0;
   let updated = 0;
   let conflict = 0;
@@ -358,6 +400,7 @@ function setraMergePulledShipments_(rows) {
   rows.forEach(function (row) {
     const id = setraNormalizeText_(row.__shipment_id);
     if (!id) return;
+
     const targetRow = idToRow[id];
     const line = headers.map(function (header) { return header ? setraValueForSheet_(header, row[header]) : ''; });
     if (map.__sync_action) line[map.__sync_action - 1] = SETRA.SYNC_ACTION.SKIP;
@@ -374,16 +417,48 @@ function setraMergePulledShipments_(rows) {
         conflict += 1;
         return;
       }
-      sheet.getRange(targetRow, 1, 1, headers.length).setValues([line]);
+      updates.push({ rowNumber: targetRow, values: line });
       updated += 1;
     } else {
-      sheet.appendRow(line);
+      appends.push(line);
       created += 1;
     }
   });
 
-  setraPrepareShipmentsRuntime_();
+  setraWriteShipmentUpdatesInGroups_(sheet, updates, headers.length);
+
+  if (appends.length > 0) {
+    const startRow = Math.max(sheet.getLastRow() + 1, SETRA.DATA_START_ROW);
+    sheet.getRange(startRow, 1, appends.length, headers.length).setValues(appends).setBackground(null).setFontColor(null);
+    setraFormatShipmentRows_(sheet, map, startRow, appends.length);
+  }
+
+  setraFinalizeShipmentsAfterDataChange_();
   return { created: created, updated: updated, conflict: conflict };
+}
+
+function setraWriteShipmentUpdatesInGroups_(sheet, updates, width) {
+  if (!updates || updates.length === 0) return;
+
+  updates.sort(function (a, b) { return a.rowNumber - b.rowNumber; });
+
+  let groupStart = updates[0].rowNumber;
+  let groupValues = [updates[0].values];
+  let previousRow = updates[0].rowNumber;
+
+  for (let i = 1; i < updates.length; i += 1) {
+    const item = updates[i];
+    if (item.rowNumber === previousRow + 1) {
+      groupValues.push(item.values);
+    } else {
+      sheet.getRange(groupStart, 1, groupValues.length, width).setValues(groupValues).setBackground(null).setFontColor(null);
+      groupStart = item.rowNumber;
+      groupValues = [item.values];
+    }
+    previousRow = item.rowNumber;
+  }
+
+  sheet.getRange(groupStart, 1, groupValues.length, width).setValues(groupValues).setBackground(null).setFontColor(null);
 }
 
 function setraRemoveDeletedDbShipmentsBatch_() {
@@ -450,7 +525,7 @@ function setraShipmentsFetching() {
     const response = setraPostJson_(SETRA.ENDPOINTS.SHIPMENTS_PUSH, Object.assign(setraBuildBasePayload_(SETRA.SHEETS.SHIPMENTS, 'fetching'), { rows: rows }));
     const results = Array.isArray(response.results) ? response.results : [];
     setraApplyPushResults_(SETRA.SHEETS.SHIPMENTS, results, SETRA.BUSINESS_HEADERS.SHIPMENTS);
-    setraPrepareShipmentsRuntime_();
+    setraFinalizeShipmentsAfterDataChange_();
 
     const success = Number(response.rows_success || 0);
     const failed = Number(response.rows_failed || 0);
@@ -510,7 +585,7 @@ function setraShipmentsDeleting() {
 
   const rowsToDelete = deletedIds.map(function (id) { return rowById[id]; }).filter(Boolean);
   setraDeleteRowsInGroups_(sheet, rowsToDelete);
-  setraPrepareShipmentsRuntime_();
+  setraFinalizeShipmentsAfterDataChange_();
 
   setraAppendSyncLog_(SETRA.SHEETS.SHIPMENTS, 'deleting', 'sheet_and_db', shipmentIds.length, deletedIds.length, failedItems.length, response.status || 'SUCCESS', response.message || 'Deleting selesai');
   setraShowResultDialog_('Shipments Deleting', [
